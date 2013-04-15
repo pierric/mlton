@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+
+set -e
+
+# This script is modified from add-cross, targeting the openmvs environment.
+#
+# It takes one arguments.
+#
+# 1. <machine> specifies a remote machine of the target type.  This script
+#    will ssh to $machine to compile the runtime and to compile and run the
+#    program that will print the values of all the constants that the MLton
+#    basis library needs.
+#
+# You also may need to set $libDir, which determines where the
+# cross-compiler target will be installed.
+
+die () {
+        echo >&2 "$1"
+        exit 1
+}
+
+usage () {
+        die "usage: $name <machine>"
+}
+
+case "$#" in
+1)
+        crossTarget="s390-ibm-openmvs"
+        crossArch="s390"
+        crossOS="openmvs"
+        machine="$1"
+        ;;
+*)
+        usage
+        ;;
+esac
+
+name=`basename "$0"`
+original=`pwd`
+dir=`dirname "$0"`
+src=`cd "$dir/.." && pwd`
+
+PATH="$original":$PATH
+
+# libDir is the mlton lib directory where you would like the
+# cross-compiler information to be installed.  If you have installed
+# from the rpms, this will usually be /usr/lib/mlton.  You must have
+# write permission there.
+
+lib="$src/build/lib"
+
+# You shouldn't need to change anything below this line.
+
+rm -rf "$lib/$crossTarget"
+mkdir -p "$lib/$crossTarget" || die "Cannot write to $lib."
+
+tmp='/tmp/mlton-add-cross'
+
+( cd "$src" &&
+        mmake TARGET=$crossTarget TARGET_ARCH=$crossArch TARGET_OS=$crossOS \
+                dirs )
+
+#ssh $machine "rm -rf $tmp && mkdir $tmp"
+#
+#echo "Copying files."
+#( cd "$src" && tar cf - --exclude '*.o' --exclude '*.a' Makefile basis-library bin include runtime ) |
+#        ssh $machine "cd $tmp && tar xf - &&
+#                if [ ! $crossArch == \`./bin/host-arch\` ]; then echo $machine is \`./bin/host-arch\`, not $crossArch; exit 1; fi &&
+#                if [ ! $crossOS == \`./bin/host-os\` ]; then echo $machine is \`./bin/host-os\`, not $crossOS; exit 1; fi"
+#
+#echo "Making runtime on $machine."
+#ssh $machine "cd $tmp && ./bin/mmake CPPFLAGS=\"$CPPFLAGS\" LDFLAGS=\"$LDFLAGS\" COMPILE_FAST=yes OMIT_BYTECODE=yes clean dirs runtime"
+#
+#ssh $machine "cd $tmp/build/lib/self && tar cf - ." |
+#        ( cd "$lib/$crossTarget" && tar xf - )
+#ssh $machine "cd $tmp/basis-library/config/c && tar cf - $crossArch-$crossOS" |
+#        ( cd "$lib/sml/basis/config/c" && tar xf - )
+( cd "$src" &&
+        mmake TARGET=$crossTarget TARGET_ARCH=$crossArch TARGET_OS=$crossOS \
+                mlbpathmap targetmap )
+
+suf=''
+archOpts=''
+osOpts=''
+
+exe='print-constants'
+echo "Compiling and running print-constants on $machine."
+"$src/build/bin/mlton" -target $crossTarget -build-constants true |
+        ssh $machine "cd $tmp/runtime &&
+                        cat >$exe.c &&
+                        gcc $archOpts $osOpts $CPPFLAGS -I. -o $exe $exe.c libmlton.a libgdtoa.a $LDFLAGS -lgmp -lm"
+ssh $machine "$tmp/runtime/$exe$suf" >"$lib/$crossTarget/constants"
+ssh $machine "rm -rf $tmp"
