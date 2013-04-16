@@ -13,6 +13,8 @@ elif gnumake -v >/dev/null 2>&1; then
         make='gnumake'
 elif make -v 2>&1 | grep -q GNU; then
         make=`which make`
+elif /usr/local/bin/make -v 2>&1 | grep -q GNU; then
+        make='/usr/local/bin/make'
 else
         die 'Can'\''t find GNU make'
 fi

@@ -16,12 +16,23 @@ struct GC_intInf_obj {
   mp_limb_t isneg;
   mp_limb_t limbs[1];
 };
+#if (defined (__openmvs__))
+#pragma pack(packed)
+typedef struct GC_intInf {
+  GC_arrayCounter counter;
+  GC_arrayLength length;
+  GC_header header;
+  struct GC_intInf_obj obj;
+} *GC_intInf;
+#pragma pack(reset)
+#else
 typedef struct GC_intInf {
   GC_arrayCounter counter;
   GC_arrayLength length;
   GC_header header;
   struct GC_intInf_obj obj;
 } __attribute__ ((packed)) *GC_intInf;
+#endif
 
 COMPILE_TIME_ASSERT(GC_intInf__obj_packed,
                     offsetof(struct GC_intInf, obj) ==

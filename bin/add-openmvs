@@ -20,15 +20,16 @@ die () {
 }
 
 usage () {
-        die "usage: $name <machine>"
+        die "usage: $name <machine> <mltondir>"
 }
 
 case "$#" in
-1)
+2)
         crossTarget="s390-ibm-openmvs"
         crossArch="s390"
         crossOS="openmvs"
         machine="$1"
+        targetdir="$2"
         ;;
 *)
         usage
@@ -54,8 +55,6 @@ lib="$src/build/lib"
 rm -rf "$lib/$crossTarget"
 mkdir -p "$lib/$crossTarget" || die "Cannot write to $lib."
 
-tmp='/tmp/mlton-add-cross'
-
 ( cd "$src" &&
         mmake TARGET=$crossTarget TARGET_ARCH=$crossArch TARGET_OS=$crossOS \
                 dirs )
@@ -77,17 +76,11 @@ tmp='/tmp/mlton-add-cross'
 #        ( cd "$lib/sml/basis/config/c" && tar xf - )
 ( cd "$src" &&
         mmake TARGET=$crossTarget TARGET_ARCH=$crossArch TARGET_OS=$crossOS \
-                mlbpathmap targetmap )
-
-suf=''
-archOpts=''
-osOpts=''
+                mlbpathmap)
 
 exe='print-constants'
-echo "Compiling and running print-constants on $machine."
-"$src/build/bin/mlton" -target $crossTarget -build-constants true |
-        ssh $machine "cd $tmp/runtime &&
-                        cat >$exe.c &&
-                        gcc $archOpts $osOpts $CPPFLAGS -I. -o $exe $exe.c libmlton.a libgdtoa.a $LDFLAGS -lgmp -lm"
-ssh $machine "$tmp/runtime/$exe$suf" >"$lib/$crossTarget/constants"
-ssh $machine "rm -rf $tmp"
+echo "Uploading print-constants on $machine."
+"$src/build/bin/mlton" -target $crossTarget -build-constants true | ssh $machine "cd $targetdir/runtime && cat >$exe.c"
+echo "Please compiling it manually."
+#ssh $machine "$tmp/runtime/$exe$suf" >"$lib/$crossTarget/constants"
+#ssh $machine "rm -rf $tmp"

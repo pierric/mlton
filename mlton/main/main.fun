@@ -130,7 +130,7 @@ val targetMap: unit -> {arch: MLton.Platform.Arch.t,
           in
              SOME { arch = arch, os = os, target = target }
           end
-          handle _ => NONE
+          handle Fail msg => (print (msg ^ "\n"); NONE)
     in
        List.keepAllMap (potentialTargets, targetMap)
     end)

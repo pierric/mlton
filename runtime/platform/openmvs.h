@@ -36,7 +36,7 @@
 
 #define HAS_FEROUND TRUE
 #define HAS_MSG_DONTWAIT FALSE
-#define HAS_REMAP TRUE
+#define HAS_REMAP FALSE
 #define HAS_SIGALTSTACK TRUE
 #define HAS_SPAWN TRUEE
 #define HAS_TIME_PROFILING TRUE
@@ -44,4 +44,6 @@
 extern char **environ;
 
 #define NSIG 40
+/* This should not conflict with existing flags. */
+#define MSG_DONTWAIT 0x1000000
 

@@ -15,12 +15,23 @@
 struct GC_string8_obj {
   char chars[1];
 };
+#if (defined (__openmvs__))
+#pragma pack(packed)
+typedef struct GC_string8 {
+  GC_arrayCounter counter;
+  GC_arrayLength length;
+  GC_header header;
+  struct GC_string8_obj obj;
+} *GC_string8;
+#pragma pack(reset)
+#else
 typedef struct GC_string8 {
   GC_arrayCounter counter;
   GC_arrayLength length;
   GC_header header;
   struct GC_string8_obj obj;
 } __attribute__ ((packed)) *GC_string8;
+#endif
 
 COMPILE_TIME_ASSERT(GC_string8__obj_packed,
                     offsetof(struct GC_string8, obj) ==

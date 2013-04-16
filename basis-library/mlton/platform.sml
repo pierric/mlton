@@ -75,7 +75,8 @@ structure MLtonPlatform: MLTON_PLATFORM =
                 (MinGW, "MinGW"),
                 (NetBSD, "NetBSD"),
                 (OpenBSD, "OpenBSD"),
-                (Solaris, "Solaris")]
+                (Solaris, "Solaris"),
+                (OpenMVS, "OpenMVS")]
 
             fun fromString s =
                let

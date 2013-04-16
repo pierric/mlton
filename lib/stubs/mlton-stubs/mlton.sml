@@ -199,6 +199,7 @@ structure MLton: MLTON =
                    | NetBSD
                    | OpenBSD
                    | Solaris
+                   | OpenMVS
 
                   val all = [(AIX, "AIX"),
                              (Cygwin, "Cygwin"),
@@ -210,7 +211,8 @@ structure MLton: MLTON =
                              (MinGW, "MinGW"),
                              (NetBSD, "NetBSD"),
                              (OpenBSD, "OpenBSD"),
-                             (Solaris, "Solaris")]
+                             (Solaris, "Solaris"),
+                             (OpenMVS, "OpenMVS")]
 
                   fun fromString s =
                      let

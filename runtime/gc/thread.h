@@ -31,11 +31,21 @@
  * fields must be first, because a thread object must appear to be a
  * normal object.
  */
+#if (defined (__openmvs__))
+#pragma pack(packed)
+typedef struct GC_thread {
+  size_t bytesNeeded;
+  size_t exnStack;
+  objptr stack;
+} *GC_thread;
+#pragma pack(reset)
+#else
 typedef struct GC_thread {
   size_t bytesNeeded;
   size_t exnStack;
   objptr stack;
 } __attribute__ ((packed)) *GC_thread;
+#endif
 
 COMPILE_TIME_ASSERT(GC_thread__packed,
                     sizeof(struct GC_thread) ==

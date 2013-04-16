@@ -199,6 +199,10 @@ profiled:
 runtime:
 	@echo 'Compiling MLton runtime system for $(TARGET).'
 	$(MAKE) -C runtime
+	mkdir -p "$(INC)/"
+	mkdir -p "$(LIB)/targets/$(TARGET)/"
+	mkdir -p "$(LIB)/targets/$(TARGET)/sml"
+	mkdir -p "$(LIB)/targets/$(TARGET)/include"
 	$(CP) include/*.h "$(INC)/"
 	$(CP) runtime/*.a "$(LIB)/targets/$(TARGET)/"
 	$(CP) runtime/gen/sizes "$(LIB)/targets/$(TARGET)/"
@@ -213,7 +217,9 @@ runtime:
 		mkdir -p "$(INC)/$$d";					\
 		$(CP) runtime/$$d/*.h "$(INC)/$$d";			\
 	done
+ifneq ($(TARGET_OS), openmvs)
 	for x in "$(LIB)/targets/$(TARGET)"/*.a; do $(RANLIB) "$$x"; done
+endif
 
 .PHONY: script
 script:

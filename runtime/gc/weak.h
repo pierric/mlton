@@ -32,10 +32,19 @@
  * field must be first, because a weak object is sometimes treated as
  * a normal object.
  */ 
+#if (defined (__openmvs__))
+#pragma pack(packed)
+typedef struct GC_weak {
+  struct GC_weak *link;
+  objptr objptr;
+} *GC_weak;
+#pragma pack(reset)
+#else
 typedef struct GC_weak {
   struct GC_weak *link;
   objptr objptr;
 } __attribute__ ((packed)) *GC_weak;
+#endif
 
 COMPILE_TIME_ASSERT(GC_weak__packed,
                     sizeof(struct GC_weak) ==

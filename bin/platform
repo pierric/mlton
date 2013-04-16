@@ -67,6 +67,10 @@ SunOS)
 	        optisa $arch > /dev/null && break
 	done
 ;;
+OS/390*)
+       HOST_OS='openmvs'
+       arch=s390
+;;
 *)
         die "Unknown OS $uname."
 ;;

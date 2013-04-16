@@ -23,6 +23,16 @@ endif
 
 TARGET_ARCH := $(shell ../bin/host-arch)
 TARGET_OS := $(shell ../bin/host-os)
+
+ifeq ($(TARGET_OS), openmvs)
+CC := c89
+EXE :=
+
+# These flags can be overridden by the user
+CPPFLAGS :=
+CFLAGS := -Wc,"float(ieee),langlvl(extc99)" -Wc,"SUPPRESS(CCN4108)" -I/u/pierric/local/include -D__s390__ -D__openmvs__ -D_LARGE_FILES
+WARNINGFLAGS :=
+else
 GCC_MAJOR_VERSION :=						\
 	$(shell $(CC) -v 2>&1 | grep 'gcc version' | 		\
 		sed 's/.*gcc version \([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1/')
@@ -36,6 +46,7 @@ EXE :=
 # These flags can be overridden by the user
 CPPFLAGS :=
 CFLAGS :=
+WARNINGFLAGS := -w
 
 WARNXCFLAGS :=
 WARNXCFLAGS += -pedantic -Wall
@@ -167,16 +178,21 @@ endif
 ifeq ($(TARGET_OS), solaris)
 XCFLAGS += -funroll-all-loops
 endif
-
+endif
 
 XCFLAGS += -I. -Iplatform
 OPTCFLAGS := $(CFLAGS) $(CPPFLAGS) $(XCFLAGS) $(OPTXCFLAGS)
 DEBUGCFLAGS := $(CFLAGS) $(CPPFLAGS) $(XCFLAGS) $(DEBUGXCFLAGS)
 PICCFLAGS := $(OPTCFLAGS) $(PICXCFLAGS)
 
+ifeq ($(TARGET_OS), openmvs)
+ALL := libgdtoa.a libmlton.a
+ALL += gen/c-types.sml gen/basis-ffi.sml gen/sizes
+else
 ALL := libgdtoa.a libgdtoa-gdb.a libgdtoa-pic.a \
        libmlton.a libmlton-gdb.a libmlton-pic.a
 ALL += gen/c-types.sml gen/basis-ffi.sml gen/sizes
+endif
 
 all: $(ALL)
 
@@ -243,7 +259,10 @@ GDTOA_DEBUG_OBJS := $(patsubst %.c,%-gdb.o,$(GDTOACFILES))
 GDTOA_PIC_OBJS   := $(patsubst %.c,%-pic.o,$(GDTOACFILES))
 
 gdtoa/README: gdtoa.tgz gdtoa-patch gdtoa-patch.internal gdtoa-patch.mlton
-	gzip -dc gdtoa.tgz | tar xf -
+	-gzip -dc gdtoa.tgz | tar xf -
+ifeq ($(TARGET_OS), openmvs)
+	cd gdtoa;chtag -Rtc iso8859-1 *
+endif
 	patch -s -p0 <gdtoa-patch
 	patch -s -p0 <gdtoa-patch.internal
 	patch -s -p0 <gdtoa-patch.mlton
@@ -256,7 +275,7 @@ gdtoa/arithchk.c: gdtoa/README
 	@touch $@
 
 gdtoa/arithchk.out: gdtoa/arithchk.c
-	cd gdtoa && $(CC) $(OPTCFLAGS) -w -O1 -o arithchk.out arithchk.c
+	cd gdtoa && $(CC) $(OPTCFLAGS) $(WARNINGFLAGS) -O1 -o arithchk.out arithchk.c
 
 gdtoa/arith.h: gdtoa/arithchk.out
 	cd gdtoa && ./arithchk.out >arith.h
@@ -265,17 +284,17 @@ gdtoa/qnan.c: gdtoa/README
 	@touch $@
 
 gdtoa/qnan.out: gdtoa/arith.h gdtoa/qnan.c
-	cd gdtoa && $(CC) $(OPTCFLAGS) -w -O1 -o qnan.out qnan.c
+	cd gdtoa && $(CC) $(OPTCFLAGS) $(WARNINGFLAGS) -O1 -o qnan.out qnan.c
 
 gdtoa/gd_qnan.h: gdtoa/qnan.out
 	cd gdtoa && ./qnan.out >gd_qnan.h
 
 gdtoa/%-pic.o: gdtoa/%.c gdtoa/arith.h gdtoa/gd_qnan.h
-	$(CC) $(PICCFLAGS) -w -DINFNAN_CHECK -c -o $@ $<
+	$(CC) $(PICCFLAGS) $(WARNINGFLAGS) -DINFNAN_CHECK -c -o $@ $<
 gdtoa/%-gdb.o: gdtoa/%.c gdtoa/arith.h gdtoa/gd_qnan.h
-	$(CC) $(DEBUGCFLAGS) -w -DINFNAN_CHECK -c -o $@ $<
+	$(CC) $(DEBUGCFLAGS) $(WARNINGFLAGS) -DINFNAN_CHECK -c -o $@ $<
 gdtoa/%.o:     gdtoa/%.c gdtoa/arith.h gdtoa/gd_qnan.h
-	$(CC) $(OPTCFLAGS) -w -DINFNAN_CHECK -c -o $@ $<
+	$(CC) $(OPTCFLAGS) $(WARNINGFLAGS) -DINFNAN_CHECK -c -o $@ $<
 
 libgdtoa.a:     $(GDTOA_OBJS)
 libgdtoa-gdb.a: $(GDTOA_DEBUG_OBJS)
@@ -324,7 +343,11 @@ gc-pic.o: $(GCCFILES)
 gc-gdb.o: $(GCCFILES)
 gc.o:     $(GCCFILES)
 
+ifeq ($(TARGET_OS), openmvs)
+gc.c_XCFLAGS := #-Wno-unreachable-code
+else
 gc.c_XCFLAGS := -Wno-unreachable-code
+endif
 
 basis/Real/Math-pic.o:  basis/Real/Math-fns.h
 basis/Real/Math-gdb.o:  basis/Real/Math-fns.h
@@ -332,14 +355,22 @@ basis/Real/Math.o:      basis/Real/Math-fns.h
 basis/Real/Real-pic.o:  basis/Real/Real-ops.h
 basis/Real/Real-gdb.o:  basis/Real/Real-ops.h
 basis/Real/Real.o:      basis/Real/Real-ops.h
+ifeq ($(TARGET_OS), openmvs)
+basis/Real/Real.c_XCFLAGS :=
+else
 basis/Real/Real.c_XCFLAGS := -Wno-float-equal
+endif
 basis/Real/gdtoa-pic.o: $(GDTOAHFILES)
 basis/Real/gdtoa-gdb.o: $(GDTOAHFILES)
 basis/Real/gdtoa.o:     $(GDTOAHFILES)
 basis/Real/strto-pic.o: $(GDTOAHFILES)
 basis/Real/strto-gdb.o: $(GDTOAHFILES)
 basis/Real/strto.o:     $(GDTOAHFILES)
+ifeq ($(TARGET_OS), openmvs)
+basis/System/Date.c_XCFLAGS :=
+else
 basis/System/Date.c_XCFLAGS := -Wno-format-nonliteral
+endif
 basis/Word/Word-pic.o:  basis/Word/Word-consts.h basis/Word/Word-ops.h basis/Word/Word-check.h
 basis/Word/Word-gdb.o:  basis/Word/Word-consts.h basis/Word/Word-ops.h basis/Word/Word-check.h
 basis/Word/Word.o:      basis/Word/Word-consts.h basis/Word/Word-ops.h basis/Word/Word-check.h
@@ -366,7 +397,7 @@ libmlton-pic.a: $(MLTON_PIC_OBJS)
 gen/sizes: gen/gen-sizes.stamp
 	@touch $@
 gen/gen-sizes.stamp: gen/gen-sizes.c libmlton.a $(HFILES)
-	$(CC) $(OPTCFLAGS) -o gen/gen-sizes gen/gen-sizes.c -L. -lmlton
+	$(CC) -L. $(OPTCFLAGS) -o gen/gen-sizes gen/gen-sizes.c -l mlton
 	rm -f gen/sizes
 	cd gen && ./gen-sizes
 	rm -f gen/gen-sizes$(EXE) gen/gen-sizes
@@ -379,7 +410,9 @@ gen/gen-sizes.stamp: gen/gen-sizes.c libmlton.a $(HFILES)
 %.a:
 	rm -f $@
 	$(AR) $@ $^
+ifneq ($(TARGET_OS), openmvs)
 	$(RANLIB) $@
+endif
 
 
 
