@@ -7,6 +7,7 @@
  * See the file MLton-LICENSE for details.
  */
 
+#ifndef __openmvs__
 void *GC_mmapAnon_safe (void *p, size_t length) {
   void *result;
 
@@ -18,6 +19,7 @@ void *GC_mmapAnon_safe (void *p, size_t length) {
   }
   return result;
 }
+#endif
 
 static inline void GC_memcpy (pointer src, pointer dst, size_t size) {
   if (DEBUG_DETAILED)

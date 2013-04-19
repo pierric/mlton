@@ -183,7 +183,15 @@ void shrinkHeap (GC_state s, GC_heap h, size_t keepSize) {
     }
     assert (isAligned (keepWithMapsSize, s->sysvals.pageSize));
     assert (keepWithMapsSize <= h->withMapsSize);
+#ifdef __openmvs__
+    if (NULL == GC_mremap(h->start, keepWithMapSize)) {
+        die("Fail to shrinkHeap at %x of size %s bytes\n", 
+            h->start,
+            uintmaxToCommaString(keepWithMapSize));
+    }
+#else
     GC_release (h->start + keepWithMapsSize, h->withMapsSize - keepWithMapsSize);
+#endif
     h->size = keepSize;
     h->withMapsSize = keepWithMapsSize;
   }
@@ -224,6 +232,7 @@ bool createHeap (GC_state s, GC_heap h,
   size_t highSize = desiredSize;
   newSize = highSize;
   unsigned int loopCount = 0;
+
   while (lowSize <= highSize) {
     pointer newStart;
 
