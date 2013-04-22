@@ -24,7 +24,9 @@ const C_Int_t Socket_Ctl_SO_SNDTIMEO = SO_SNDTIMEO;
 const C_Int_t Socket_Ctl_SO_TYPE = SO_TYPE;
 const C_Int_t Socket_MSG_CTRUNC = MSG_CTRUNC;
 const C_Int_t Socket_MSG_DONTROUTE = MSG_DONTROUTE;
+#if HAS_MSG_DONTWAIT
 const C_Int_t Socket_MSG_DONTWAIT = MSG_DONTWAIT;
+#endif
 const C_Int_t Socket_MSG_EOR = MSG_EOR;
 const C_Int_t Socket_MSG_OOB = MSG_OOB;
 const C_Int_t Socket_MSG_PEEK = MSG_PEEK;

@@ -1,5 +1,10 @@
 #include "platform.h"
 
+#if defined(__openmvs__)
+C_Errno_t(C_Int_t) Posix_Process_nanosleep (Ref(C_Time_t) sec, Ref(C_Long_t) nsec) {
+  return ENOSYS;
+}
+#else
 C_Errno_t(C_Int_t) Posix_Process_nanosleep (Ref(C_Time_t) sec, Ref(C_Long_t) nsec) {
   struct timespec rem;
   struct timespec req;
@@ -14,3 +19,4 @@ C_Errno_t(C_Int_t) Posix_Process_nanosleep (Ref(C_Time_t) sec, Ref(C_Long_t) nse
   *((long*)nsec) = rem.tv_nsec;
   return res;
 }
+#endif
