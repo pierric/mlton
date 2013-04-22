@@ -3,11 +3,17 @@
 #include "diskBack.openmvs.c"
 #include "nonwin.c"
 
+#ifndef __XPLINK__
+#define RESUME(mcontext) ((int*)&(mcontext))[14]
+#else
+#define RESUME(mcontext) ((int*)((char*)&(mcontext))+80)[7]
+#endif
+
 static void catcher (__attribute__ ((unused)) int signo,
         __attribute__ ((unused)) siginfo_t* info,
         void* context) {
     ucontext_t* ucp = (ucontext_t*)context;
-    GC_handleSigProf ((code_pointer) ucp->uc_mcontext.psw.addr);
+    GC_handleSigProf ((code_pointer) RESUME(ucp->uc_mcontext));
 }
 
 void GC_setSigProfHandler (struct sigaction *sa) {
@@ -27,7 +33,7 @@ size_t GC_pageSize (void) {
 
 uintmax_t GC_physMem (void) {
     struct rlimit rlim;
-    getrlimit(RLIMIT_AS, &rlim)
+    getrlimit(RLIMIT_AS, &rlim);
     return (uintmax_t)rlim.rlim_max;
 }
 
