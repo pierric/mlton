@@ -381,9 +381,20 @@ structure PosixFileSys: POSIX_FILE_SYS_EXTRA =
 
       fun access (path: string, mode: access_mode list): bool =
          let 
-            val mode = List.foldl C_Int.orb 0 (A.F_OK :: (map conv_access_mode mode))
+            val mode = List.foldl C_Int.orb 0 (map conv_access_mode mode)
             val path = NullString.nullTerm path
          in 
+            SysCall.syscallErr
+            ({clear = false, restart = false, errVal = C_Int.fromInt ~1}, fn () =>
+             {return = Prim.access (path, A.F_OK),
+              post = fn _ => true,
+              handlers = [(Error.acces, fn () => false),
+                          (Error.loop, fn () => false),
+                          (Error.nametoolong, fn () => false),
+                          (Error.noent, fn () => false),
+                          (Error.notdir, fn () => false),
+                          (Error.rofs, fn () => false)]})
+            andalso
             SysCall.syscallErr
             ({clear = false, restart = false, errVal = C_Int.fromInt ~1}, fn () =>
              {return = Prim.access (path, mode),
