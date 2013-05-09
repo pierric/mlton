@@ -108,6 +108,14 @@ $(AOUT): $(SOURCES)
 	@echo 'Compiling mlton (takes a while)'
 	mlton $(FLAGS) $(FILE)
 
+gen-port:
+	rm -rf mlton-compiler.*.c upload-mlton upload-mlton.tar.gz
+	mkdir upload-mlton
+	mlton @MLton ram-slop 0.7 gc-summary  -- -default-ann 'sequenceNonUnit warn' -default-ann 'warnUnused true' -target s390-ibm-openmvs -verbose 2 -output mlton-compile -codegen c -stop g mlton.mlb
+	mv mlton-compile.*.c upload-mlton/
+	tar cf upload-mlton.tar upload-mlton
+	gzip upload-mlton.tar
+
 .PHONY: def-use
 def-use: mlton.def-use
 
