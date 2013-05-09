@@ -29,14 +29,16 @@ CC := c89
 EXE :=
 
 # These flags can be overridden by the user
-ASCIICFLAGS := -Wc,"ascii,xplink"
-ASCIILFLAGS := -Wl,"xplink"
 ASCII := true
-
 CPPFLAGS :=
-CFLAGS := -Wc,"float(ieee),langlvl(extc99)" $(ASCIICFLAGS) -Wc,"SUPPRESS(CCN4108)" -I/u/pierric/local/include -D__s390__ -D__openmvs__ -D_LARGE_FILES
 WARNINGFLAGS :=
-LFLAGS := $(ASCIILFLAGS)
+#ifdef ASCII
+CFLAGS := -Wc,"float(ieee),langlvl(extc99),xplink,ascii" -Wc,"SUPPRESS(CCN4108)" -I/u/pierric/local/include -D__s390__ -D__openmvs__ -D_LARGE_FILES
+LDFLAGS := -Wl,"xplink"
+#else
+#CFLAGS := -Wc,"float(ieee),langlvl(extc99)" -Wc,"SUPPRESS(CCN4108)" -I/u/pierric/local/include -D__s390__ -D__openmvs__ -D_LARGE_FILES
+#LDFLAGS := 
+#endif
 else
 GCC_MAJOR_VERSION :=						\
 	$(shell $(CC) -v 2>&1 | grep 'gcc version' | 		\
@@ -51,7 +53,7 @@ EXE :=
 # These flags can be overridden by the user
 CPPFLAGS :=
 CFLAGS :=
-LFLAGS :=
+LDFLAGS :=
 WARNINGFLAGS := -w
 
 WARNXCFLAGS :=
@@ -227,7 +229,7 @@ ml-types.h: gen/ml-types.h
 gen/c-types.h gen/c-types.sml gen/ml-types.h: gen/gen-types.stamp
 	@touch $@
 gen/gen-types.stamp: gen/gen-types.c util.h util.o
-	$(CC) $(OPTCFLAGS) $(LFLAGS) -o gen/gen-types gen/gen-types.c util.o
+	$(CC) $(OPTCFLAGS) $(LDFLAGS) -o gen/gen-types gen/gen-types.c util.o
 	rm -f gen/c-types.h gen/c-types.sml gen/ml-types.h gen/gen-types.stamp
 	cd gen && ./gen-types
 ifeq ($(ASCII), true)
@@ -284,7 +286,7 @@ gdtoa/arithchk.c: gdtoa/README
 	@touch $@
 
 gdtoa/arithchk.out: gdtoa/arithchk.c
-	cd gdtoa && $(CC) $(OPTCFLAGS) $(WARNINGFLAGS) $(LFLAGS) -O1 -o arithchk.out arithchk.c
+	cd gdtoa && $(CC) $(OPTCFLAGS) $(WARNINGFLAGS) $(LDFLAGS) -O1 -o arithchk.out arithchk.c
 
 gdtoa/arith.h: gdtoa/arithchk.out
 	cd gdtoa && ./arithchk.out >arith.h
@@ -296,7 +298,7 @@ gdtoa/qnan.c: gdtoa/README
 	@touch $@
 
 gdtoa/qnan.out: gdtoa/arith.h gdtoa/qnan.c
-	cd gdtoa && $(CC) $(OPTCFLAGS) $(WARNINGFLAGS) $(LFLAGS) -O1 -o qnan.out qnan.c
+	cd gdtoa && $(CC) $(OPTCFLAGS) $(WARNINGFLAGS) $(LDFLAGS) -O1 -o qnan.out qnan.c
 
 gdtoa/gd_qnan.h: gdtoa/qnan.out
 	cd gdtoa && ./qnan.out >gd_qnan.h
@@ -396,6 +398,10 @@ basis/cpointer-pic.o:   basis/cpointer.h
 basis/cpointer-gdb.o:   basis/cpointer.h
 basis/cpointer.o:       basis/cpointer.h
 
+ifeq ($(TARGET_OS), openmvs)
+gdtoa/gdtoa.o: gdtoa/gdtoa.c $(HFILES)
+	$(CC) -Wc,"CSE(gdtoa)" $(OPTCFLAGS) $($(<)_XCFLAGS) -c -o $@ $<
+endif
 %-pic.o: %.c $(HFILES)
 	$(CC) $(PICCFLAGS) $($(<)_XCFLAGS) -c -o $@ $<
 %-gdb.o: %.c $(HFILES)
@@ -412,7 +418,7 @@ libmlton-pic.a: $(MLTON_PIC_OBJS)
 gen/sizes: gen/gen-sizes.stamp
 	@touch $@
 gen/gen-sizes.stamp: gen/gen-sizes.c libmlton.a $(HFILES)
-	$(CC) -L. $(OPTCFLAGS) $(LFLAGS) -o gen/gen-sizes gen/gen-sizes.c -l mlton
+	$(CC) -L. $(OPTCFLAGS) $(LDFLAGS) -o gen/gen-sizes gen/gen-sizes.c -l mlton
 	rm -f gen/sizes
 	cd gen && ./gen-sizes
 ifeq ($(ASCII), true)
