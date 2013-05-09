@@ -62,6 +62,16 @@ size_t sizeofHeapDesired (GC_state s, size_t liveSize, size_t currentSize) {
   currentWithMapsSize = currentSize + currentMapsSize;
 
   ratio = (double)s->sysvals.ram / (double)liveWithMapsSize;
+  if (DEBUG) {
+     fprintf(stderr, "calculating sizeofHeapDesired.\n");
+     fprintf(stderr, "    sysvals.ram = %d\n", s->sysvals.ram);
+     fprintf(stderr, "    liveWithMapsSize= %d\n", liveWithMapsSize);
+     fprintf(stderr, "    ratio= %f\n", ratio);
+     fprintf(stderr, "    ratios.live= %f\n", s->controls.ratios.live);
+     fprintf(stderr, "    ratios.grow= %f\n", s->controls.ratios.grow);
+     fprintf(stderr, "    ratios.copy= %f\n", s->controls.ratios.copy);
+     fprintf(stderr, "    ratios.markCompact= %f\n", s->controls.ratios.markCompact);
+  }
 
   if (ratio >= s->controls.ratios.live + s->controls.ratios.grow) {
     /* Cheney copying fits in RAM with desired ratios.live. */
@@ -184,11 +194,8 @@ void shrinkHeap (GC_state s, GC_heap h, size_t keepSize) {
     assert (isAligned (keepWithMapsSize, s->sysvals.pageSize));
     assert (keepWithMapsSize <= h->withMapsSize);
 #ifdef __openmvs__
-    if (NULL == GC_mremap(h->start, h->size, keepWithMapsSize)) {
-        die("Fail to shrinkHeap at %x of size %s bytes\n", 
-            h->start,
-            uintmaxToCommaString(keepWithMapsSize));
-    }
+    /* do nothing on z/OS USS, since there is no such way to shrink
+       a allocated piece of memory */
 #else
     GC_release (h->start + keepWithMapsSize, h->withMapsSize - keepWithMapsSize);
 #endif
