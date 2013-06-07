@@ -9,7 +9,7 @@
 bool isObjptr (objptr p) {
   unsigned int shift = GC_MODEL_MINALIGN_SHIFT - GC_MODEL_OBJPTR_SHIFT;
   objptr mask = ~((~((objptr)0)) << shift);
-  return (0 != p && 0 == (p & mask));
+  return (0 == (p & mask));
 }
 
 pointer objptrToPointer (objptr O, pointer B) {

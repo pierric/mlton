@@ -9,5 +9,5 @@
 /* isPointer returns true if p looks like a pointer. */
 bool isPointer (pointer p) {
   uintptr_t mask = ~((~((uintptr_t)0)) << GC_MODEL_MINALIGN_SHIFT);
-  return (0 != p && 0 == ((uintptr_t)p & mask));
+  return (0 == ((uintptr_t)p & mask));
 }
