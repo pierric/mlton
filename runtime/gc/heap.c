@@ -30,6 +30,9 @@ void initHeap (__attribute__ ((unused)) GC_state s,
   h->size = 0;
   h->start = NULL;
   h->withMapsSize = 0;
+#ifdef __openmvs__
+  h->_start = NULL;
+#endif
 }
 
 /* sizeofHeapDesired (s, l, cs)
@@ -156,7 +159,11 @@ size_t sizeofHeapDesired (GC_state s, size_t liveSize, size_t currentSize) {
 }
 
 void releaseHeap (GC_state s, GC_heap h) {
+#ifdef __openmvs__
+  if (NULL == h->_start)
+#else
   if (NULL == h->start)
+#endif
     return;
   if (DEBUG or s->controls.messages)
     fprintf (stderr,
@@ -164,7 +171,11 @@ void releaseHeap (GC_state s, GC_heap h) {
              (uintptr_t)(h->start),
              uintmaxToCommaString(h->size),
              uintmaxToCommaString(h->withMapsSize - h->size));
+#ifdef __openmvs__
+  GC_release (h->_start, h->withMapsSize);
+#else
   GC_release (h->start, h->withMapsSize);
+#endif
   initHeap (s, h);
 }
 
@@ -263,11 +274,19 @@ bool createHeap (GC_state s, GC_heap h,
       /* Always use 0 in the last step. */
       if (i == addressCount)
         address = 0;
-
+#ifdef __openmvs__
+      newStart = GC_mmapAnon ((pointer)address, newWithMapsSize+CARD_SIZE);
+#else
       newStart = GC_mmapAnon ((pointer)address, newWithMapsSize);
+#endif
       unless ((void*)-1 == newStart) {
         addressScanDir = not addressScanDir;
+#ifdef __openmvs__
+        h->_start = newStart;
+        h->start  = (pointer)align((size_t)newStart, CARD_SIZE);
+#else
         h->start = newStart;
+#endif
         h->size = newSize;
         h->withMapsSize = newWithMapsSize;
         if (h->size > s->cumulativeStatistics.maxHeapSize)
