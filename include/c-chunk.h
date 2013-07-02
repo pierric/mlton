@@ -212,6 +212,13 @@
 #define MLTON_CODEGEN_MEMCPY(decl)
 #endif
 MLTON_CODEGEN_MEMCPY(void * memcpy(void *, const void*, size_t);)
+
+#ifdef __openmvs__
+#include <math.h>
+#undef MLTON_CODEGEN_MATHFN
+#define MLTON_CODEGEN_MATHFN(x)
+#endif
+
 #include "basis-ffi.h"
 #include "basis/coerce.h"
 #include "basis/cpointer.h"
