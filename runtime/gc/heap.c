@@ -32,6 +32,8 @@ void initHeap (__attribute__ ((unused)) GC_state s,
   h->withMapsSize = 0;
 #ifdef __openmvs__
   h->_start = NULL;
+  h->_size = 0;
+  h->_withMapsSize = 0;  
 #endif
 }
 
@@ -282,8 +284,10 @@ bool createHeap (GC_state s, GC_heap h,
       unless ((void*)-1 == newStart) {
         addressScanDir = not addressScanDir;
 #ifdef __openmvs__
-        h->_start = newStart;
         h->start  = (pointer)align((size_t)newStart, CARD_SIZE);
+        h->_start = newStart;
+        h->_size  = newSize;
+        h->_withMapsSize = newWithMapsSize;
 #else
         h->start = newStart;
 #endif
@@ -474,6 +478,20 @@ void growHeap (GC_state s, size_t desiredSize, size_t minSize) {
              uintmaxToCommaString(minSize),
              uintmaxToCommaString(sizeofCardMapAndCrossMap (s, minSize)));
   }
+
+#ifdef __openmvs__
+  if (desiredSize <= s -> heap._size) {
+     if (DEBUG_RESIZING or s->controls.messages) {
+        fprintf (stderr,
+              "[GC: Original heap has %s bytes (+ %s bytes card/cross map),]\n",
+              uintmaxToCommaString(s->heap._size),
+              uintmaxToCommaString(s->heap._withMapsSize - s->heap._size));
+     }
+     s->heap.size = desiredSize;
+     s->heap.withMapsSize = desiredSize + sizeofCardMapAndCrossMap (s, desiredSize);
+     return;
+  }
+#endif
   if (minSize <= s->heap.size) {
     useCurrent = TRUE;
     /* Demand proper growth from remapHeap and/or createHeap. */
