@@ -30,7 +30,9 @@ typedef struct GC_heap {
   pointer start; /* start of heap (and old generation) */
   size_t withMapsSize; /* size of heap with card/cross maps */
 #ifdef __openmvs__
-  pointer _start;
+  pointer _start;       /* orignal pointer obtained from malloc */
+  size_t  _size;        /* orignal requested size */
+  size_t _withMapsSize; /* _size + card/cross maps */
 #endif
 } *GC_heap;
 
