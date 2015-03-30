@@ -1,4 +1,4 @@
-(* Copyright (C) 2011 Matthew Fluet.
+(* Copyright (C) 2011,2014 Matthew Fluet.
  * Copyright (C) 1999-2008 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
@@ -16,42 +16,19 @@ open S
 (*              Intermediate Languages               *)
 (*---------------------------------------------------*)
 
-structure Symbol = Symbol ()
-structure Field = Field (structure Symbol = Symbol)
-structure Record = Record (val isSorted = false
-                           structure Field = Field)
-structure SortedRecord = Record (val isSorted = true
-                                 structure Field = Field)
-structure Tyvar = Tyvar ()
-structure Ast = Ast (structure Record = Record
-                     structure SortedRecord = SortedRecord
-                     structure Symbol = Symbol
-                     structure Tyvar = Tyvar)
-local
-   open Ast.Tycon
-in
-   structure CharSize = CharSize
-   structure IntSize = IntSize
-   structure RealSize = RealSize
-   structure WordSize = WordSize
-end
-structure Atoms = Atoms (structure CharSize = CharSize
-                         structure Field = Field
-                         structure IntSize = IntSize
-                         structure RealSize = RealSize
-                         structure Record = Record
-                         structure SortedRecord = SortedRecord
-                         structure Tyvar = Tyvar
-                         structure WordSize = WordSize)
+structure Atoms = Atoms ()
 local
    open Atoms
 in
    structure Const = Const
    structure ConstType = Const.ConstType
    structure Ffi = Ffi
+   structure Symbol = Symbol
+   structure WordSize = WordSize
    structure WordX = WordX
 end
-structure TypeEnv = TypeEnv (Atoms)
+structure Ast = Ast (open Atoms)
+structure TypeEnv = TypeEnv (open Atoms)
 structure CoreML = CoreML (open Atoms
                            structure Type =
                               struct
@@ -112,6 +89,8 @@ structure Backend = Backend (structure Ssa = Ssa2
                              fun funcToLabel f = f)
 structure CCodegen = CCodegen (structure Ffi = Ffi
                                structure Machine = Machine)
+structure LLVMCodegen = LLVMCodegen (structure CCodegen = CCodegen
+                                     structure Machine = Machine)
 structure x86Codegen = x86Codegen (structure CCodegen = CCodegen
                                    structure Machine = Machine)
 structure amd64Codegen = amd64Codegen (structure CCodegen = CCodegen
@@ -681,9 +660,10 @@ fun preCodegen {input: MLBString.t}: Machine.Program.t =
          end
       val codegenImplementsPrim =
          case !Control.codegen of
-            Control.CCodegen => CCodegen.implementsPrim
-          | Control.x86Codegen => x86Codegen.implementsPrim
-          | Control.amd64Codegen => amd64Codegen.implementsPrim
+            Control.AMD64Codegen => amd64Codegen.implementsPrim
+          | Control.CCodegen => CCodegen.implementsPrim
+          | Control.LLVMCodegen => LLVMCodegen.implementsPrim
+          | Control.X86Codegen => x86Codegen.implementsPrim
       val machine =
          Control.passTypeCheck
          {display = Control.Layouts Machine.Program.layouts,
@@ -713,7 +693,7 @@ fun preCodegen {input: MLBString.t}: Machine.Program.t =
       machine
    end
 
-fun compile {input: MLBString.t, outputC, outputS}: unit =
+fun compile {input: MLBString.t, outputC, outputLL, outputS}: unit =
    let
       val machine =
          Control.trace (Control.Top, "pre codegen")
@@ -723,32 +703,39 @@ fun compile {input: MLBString.t, outputC, outputS}: unit =
           ; Machine.Label.printNameAlphaNumeric := true)
       val () =
          case !Control.codegen of
-            Control.CCodegen =>
-               (clearNames ()
-                ; (Control.trace (Control.Top, "C code gen")
-                   CCodegen.output {program = machine,
-                                    outputC = outputC}))
-          | Control.x86Codegen =>
-               (clearNames ()
-                ; (Control.trace (Control.Top, "x86 code gen")
-                   x86Codegen.output {program = machine,
-                                      outputC = outputC,
-                                      outputS = outputS}))
-          | Control.amd64Codegen =>
+            Control.AMD64Codegen =>
                (clearNames ()
                 ; (Control.trace (Control.Top, "amd64 code gen")
                    amd64Codegen.output {program = machine,
                                         outputC = outputC,
                                         outputS = outputS}))
+          | Control.CCodegen =>
+               (clearNames ()
+                ; (Control.trace (Control.Top, "C code gen")
+                   CCodegen.output {program = machine,
+                                    outputC = outputC}))
+          | Control.LLVMCodegen =>
+               (clearNames ()
+                ; (Control.trace (Control.Top, "llvm code gen")
+                   LLVMCodegen.output {program = machine,
+                                       outputC = outputC,
+                                      outputLL = outputLL}))
+          | Control.X86Codegen =>
+               (clearNames ()
+                ; (Control.trace (Control.Top, "x86 code gen")
+                   x86Codegen.output {program = machine,
+                                      outputC = outputC,
+                                      outputS = outputS}))
       val _ = Control.message (Control.Detail, PropertyList.stats)
       val _ = Control.message (Control.Detail, HashSet.stats)
    in
       ()
    end handle Done => ()
 
-fun compileMLB {input: File.t, outputC, outputS}: unit =
+fun compileMLB {input: File.t, outputC, outputLL, outputS}: unit =
    compile {input = MLBString.fromFile input,
             outputC = outputC,
+            outputLL = outputLL,
             outputS = outputS}
 
 val elaborateMLB =
@@ -777,9 +764,10 @@ local
                 end)
       end
 in
-   fun compileSML {input: File.t list, outputC, outputS}: unit =
+   fun compileSML {input: File.t list, outputC, outputLL, outputS}: unit =
       compile {input = genMLB {input = input},
                outputC = outputC,
+               outputLL = outputLL,
                outputS = outputS}
    val elaborateSML =
       fn {input: File.t list} =>

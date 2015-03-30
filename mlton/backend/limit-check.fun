@@ -62,7 +62,7 @@
  * Stack limit checks are completely orthogonal to heap checks, and are simply
  * inserted at the start of each function.
  *)
-functor LimitCheck (S: LIMIT_CHECK_STRUCTS): LIMIT_CHECK =
+functor LimitCheck (S: RSSA_TRANSFORM_STRUCTS): RSSA_TRANSFORM =
 struct
 
 open S
@@ -175,18 +175,18 @@ fun insertFunction (f: Function.t,
                      val _ = r := SOME l
                      val cfunc =
                         CFunction.T {args = Vector.new0 (),
-                                     bytesNeeded = NONE,
                                      convention = CFunction.Convention.Cdecl,
-                                     ensuresBytesFree = false,
-                                     mayGC = false,
-                                     maySwitchThreads = false,
-                                     modifiesFrontier = false,
+                                     kind = CFunction.Kind.Runtime {bytesNeeded = NONE,
+                                                                    ensuresBytesFree = false,
+                                                                    mayGC = false,
+                                                                    maySwitchThreads = false,
+                                                                    modifiesFrontier = false,
+                                                                    readsStackTop = false,
+                                                                    writesStackTop = false},
                                      prototype = (Vector.new0 (), NONE),
-                                     readsStackTop = false,
                                      return = Type.unit,
                                      symbolScope = CFunction.SymbolScope.Private,
-                                     target = CFunction.Target.Direct "MLton_heapCheckTooLarge",
-                                     writesStackTop = false}
+                                     target = CFunction.Target.Direct "MLton_heapCheckTooLarge"}
                      val _ =
                         newBlocks :=
                         Block.T {args = Vector.new0 (),
@@ -825,7 +825,7 @@ fun insertCoalesce (f: Function.t, handlesSignals) =
       f
    end
 
-fun insert (Program.T {functions, handlesSignals, main, objectTypes}) =
+fun transform (Program.T {functions, handlesSignals, main, objectTypes}) =
    let
       val _ = Control.diagnostic (fn () => Layout.str "Limit Check maxPaths")
       datatype z = datatype Control.limitCheck

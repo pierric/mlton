@@ -8,7 +8,6 @@
 
 local
    ../../lib/mlton/sources.mlb
-   ../ast/sources.mlb
    ../atoms/sources.mlb
    ../control/sources.mlb
    ../ssa/sources.mlb
@@ -33,13 +32,11 @@ local
    packed-representation.fun
    ssa-to-rssa.sig
    ssa-to-rssa.fun
-   implement-handlers.sig
+   rssa-transform.sig
    implement-handlers.fun
    implement-profiling.sig
    implement-profiling.fun
-   limit-check.sig
    limit-check.fun
-   signal-check.sig
    signal-check.fun
    live.sig
    live.fun

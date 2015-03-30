@@ -1,4 +1,4 @@
-(* Copyright (C) 2009 Matthew Fluet.
+(* Copyright (C) 2009,2013-2014 Matthew Fluet.
  * Copyright (C) 1999-2008 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
@@ -190,11 +190,11 @@ fun toMachine (program: Ssa.Program.t, codegen) =
             val p = maybePass ({name = "rssaShrink1", 
                                 doit = Program.shrink}, p)
             val p = pass ({name = "insertLimitChecks", 
-                           doit = LimitCheck.insert}, p)
+                           doit = LimitCheck.transform}, p)
             val p = pass ({name = "insertSignalChecks", 
-                           doit = SignalCheck.insert}, p)
+                           doit = SignalCheck.transform}, p)
             val p = pass ({name = "implementHandlers", 
-                           doit = ImplementHandlers.doit}, p)
+                           doit = ImplementHandlers.transform}, p)
             val p = maybePass ({name = "rssaShrink2", 
                                 doit = Program.shrink}, p)
             val () = Program.checkHandlers p
@@ -328,6 +328,7 @@ let
                 *    end of the backend.
                 *)
                if !Control.codegen = Control.CCodegen
+                  orelse !Control.codegen = Control.LLVMCodegen
                   orelse !Control.profile <> Control.ProfileNone
                   then new ()
                else
@@ -423,11 +424,6 @@ let
                (all, get)
             end
       in
-         val (allIntInfs, globalIntInf) =
-            make (IntInf.equals,
-                  fn i => (IntInf.toString i,
-                           Type.intInf (),
-                           i))
          val (allReals, globalReal) =
             make (RealX.equals,
                   fn r => (RealX.toString r,
@@ -441,18 +437,24 @@ let
       end
       fun bogusOp (t: Type.t): M.Operand.t =
          case Type.deReal t of
-            NONE => M.Operand.Word (WordX.fromIntInf
-                                    (0, WordSize.fromBits (Type.width t)))
+            NONE => let
+                       val bogusWord =
+                          M.Operand.Word
+                          (WordX.zero
+                           (WordSize.fromBits (Type.width t)))
+                    in
+                       case Type.deWord t of
+                          NONE => M.Operand.Cast (bogusWord, t)
+                        | SOME _ => bogusWord
+                    end
           | SOME s => globalReal (RealX.zero s)
       fun constOperand (c: Const.t): M.Operand.t =
          let
             datatype z = datatype Const.t
          in
             case c of
-               IntInf i =>
-                  (case Const.SmallIntInf.toWord i of
-                      NONE => globalIntInf i
-                    | SOME w => M.Operand.Cast (M.Operand.Word w, Type.intInf ()))
+               IntInf _ =>
+                  Error.bug "Backend.constOperand: IntInf"
              | Null => M.Operand.Null
              | Real r => globalReal r
              | Word w => M.Operand.Word w
@@ -494,11 +496,17 @@ let
          in
             case oper of
                ArrayOffset {base, index, offset, scale, ty} =>
-                  M.Operand.ArrayOffset {base = translateOperand base,
-                                         index = translateOperand index,
-                                         offset = offset,
-                                         scale = scale,
-                                         ty = ty}
+                  let
+                     val base = translateOperand base
+                  in
+                     if M.Operand.isLocation base
+                        then M.Operand.ArrayOffset {base = base,
+                                                    index = translateOperand index,
+                                                    offset = offset,
+                                                    scale = scale,
+                                                    ty = ty}
+                     else bogusOp ty
+                  end
              | Cast (z, t) => M.Operand.Cast (translateOperand z, t)
              | Const c => constOperand c
              | EnsuresBytesFree =>
@@ -1139,7 +1147,6 @@ in
        frameLayouts = frameLayouts,
        frameOffsets = frameOffsets,
        handlesSignals = handlesSignals,
-       intInfs = allIntInfs (), 
        main = main,
        maxFrameSize = maxFrameSize,
        objectTypes = objectTypes,
