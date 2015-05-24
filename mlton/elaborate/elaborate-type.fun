@@ -26,11 +26,11 @@ struct
               in
                 raise UnknownTypeCons
               end
-          | SOME (typfun, _) =>
+          | SOME typdef =>
               let 
                 val typs = Vector.toListMap (atyps, elaborateT env)
               in
-                TypFun.apply (typfun, typs)
+                TypFun.apply (Env.TypDef.typfun typdef, typs)
               end)
       | Record _ =>
           let
