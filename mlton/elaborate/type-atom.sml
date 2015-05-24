@@ -23,16 +23,26 @@ struct
       Layout.str "tycon"
   end
    
-  type tyvar = Tyvar.t
-  type tycon = Tycon.t
+  type tyvar  = Tyvar.t
+  type tycon  = Tycon.t
+
+  structure VarSet = 
+  struct
+  type t = tyvar list
+  val { empty       = empty
+      , singleton   = singleton
+      , +           = append
+      , -           = subtract
+      , areDisjoint = disjoint
+      , unions      = unions
+      , layout      = layout
+      , ...}
+      = List.set {equals = op=, layout = Tyvar.layout}
+  end
+
   exception NotUnifiable
   exception NotMergeable
 
-  val { singleton = singleton
-      , unions    = unions
-      , -         = subtract
-      , ...}
-      = List.set {equals = op=, layout = Tyvar.layout}
 
   structure Type = 
   struct
@@ -49,27 +59,29 @@ struct
                                 , List.layout layout typs ]
     fun free typ = 
       case typ of
-        RigdTyvar x    => singleton x
-      | FlexTyvar x    => singleton x
-      | Cons (_, typs) => unions (List.map (typs, free))
+        RigdTyvar x    => VarSet.singleton x
+      | FlexTyvar x    => VarSet.singleton x
+      | Cons (_, typs) => VarSet.unions (List.map (typs, free))
   end
  
   type typ = Type.t
 
   structure Scheme =
   struct
-    datatype t = Scheme of tyvar list * Type.t
+    datatype t = Scheme of tyvar list * typ
     fun make s = Scheme s 
-    fun layout (Scheme (tyvars, typ)) =
+    fun free (Scheme (bound, typ)) = 
+      VarSet.subtract (Type.free typ, bound)
+    fun layout (Scheme (bound, typ)) =
       Layout.seq
         [ Layout.str "forall "
-        , List.layout Tyvar.layout tyvars
+        , VarSet.layout bound
         , Type.layout typ]
   end
 
   structure Subst = 
   struct
-    type t = (tyvar * Type.t) list 
+    type t = (tyvar * typ) list 
 
     local
       fun layoutOne (tyvar, typ) = 
@@ -130,11 +142,11 @@ struct
       | (_, FlexTyvar y)           => Subst.make (y, typ1)
       | (Cons (con1, typs1), Cons (con2, typs2)) => 
           if con1 = con2 then
-            unifyV (typs1, typs2) 
+            unifyL (typs1, typs2) 
           else 
             raise NotUnifiable
 
-    and unifyV (vt1, vt2) = List.fold2 (vt1, vt2, Subst.empty, 
+    and unifyL (vt1, vt2) = List.fold2 (vt1, vt2, Subst.empty, 
                               fn (ty1, ty2, rho) => 
                                 let
                                   val ty1' = subst (rho,ty1)
@@ -146,7 +158,7 @@ struct
 
     fun gen (env, typ) = 
       let 
-        val qfv = subtract (Type.free typ, env)
+        val qfv = VarSet.subtract (Type.free typ, env)
       in
         Scheme.make (qfv, typ)
       end
@@ -163,7 +175,7 @@ struct
   end
 
   structure TypFun = struct
-    datatype t = TypFun of tyvar list * Type.t
+    datatype t = TypFun of tyvar list * typ 
     fun apply (TypFun (parms, body), args) = 
       let
         val _    = if List.length parms <> List.length args then
