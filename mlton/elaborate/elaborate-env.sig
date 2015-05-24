@@ -1,4 +1,5 @@
 signature ELABORATE_ENV_STRUCTS = sig
+  include ATOMS
   structure Ast : AST
   structure TyAtom : TYPE_ATOM
 end
@@ -6,9 +7,34 @@ end
 signature ELABORATE_ENV = sig 
   include ELABORATE_ENV_STRUCTS
 
+  structure TypDef : sig
+    type t
+    val arity  : t -> int
+    val typfun : t -> TyAtom.TypFun.t
+    val cons   : t -> Ast.Longvid.t list
+  end
+
+  structure ValDef : sig
+    type t
+    datatype v = VCON of Con.t | VVAR of Var.t | VEXN of Var.t
+    val isCon : v -> bool
+    val isVar : v -> bool
+    val isExn : v -> bool
+    val value : t -> v
+    val scheme: t -> TyAtom.Scheme.t
+  end
+
   type t
 
-  val free : t -> TyAtom.Tyvar.t list
+  val free : t -> TyAtom.VarSet.t
 
-  val lookupTycon : t * Ast.Longtycon.t -> (TyAtom.TypFun.t * Ast.Longvid.t list) option
+  val lookupTycon : t * Ast.Longtycon.t -> TypDef.t option
+  val lookupVid   : t * Ast.Longvid.t   -> ValDef.t option
+
+  (* extend current Type  Environment *)
+  val extendTycon : Ast.Tycon.t * TypDef.t -> t -> t
+  (* extend current Value Environment *)
+  val extendVid   : Ast.Vid.t   * ValDef.t -> t -> t
+  (* extend rigid free variables *)
+  val extendRgdFV : TyAtom.VarSet.t -> t -> t
 end
