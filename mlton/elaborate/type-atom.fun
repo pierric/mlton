@@ -1,28 +1,7 @@
-structure TypeAtom : TYPE_ATOM = 
+functor TypeAtom (S : TYPE_ATOM_STRUCTS) : TYPE_ATOM = 
 struct
+  open S
 
-  structure Tyvar = 
-  struct
-    type t = int
-    val current = ref 0
-    fun make () = 
-      let
-        val tyvar = !current
-        val _     = current := tyvar + 1; 
-      in 
-        tyvar
-      end
-    fun layout tyvar = 
-      Layout.str ("`a" ^ Int.toString tyvar)
-  end
-
-  structure Tycon = 
-  struct
-    datatype t = Tycon
-    fun layout tycon = 
-      Layout.str "tycon"
-  end
-   
   type tyvar  = Tyvar.t
   type tycon  = Tycon.t
 
@@ -37,7 +16,7 @@ struct
       , unions      = unions
       , layout      = layout
       , ...}
-      = List.set {equals = op=, layout = Tyvar.layout}
+      = List.set {equals = Tyvar.equals, layout = Tyvar.layout}
   end
 
   exception NotUnifiable
@@ -62,22 +41,30 @@ struct
         RigdTyvar x    => VarSet.singleton x
       | FlexTyvar x    => VarSet.singleton x
       | Cons (_, typs) => VarSet.unions (List.map (typs, free))
+
+    fun newNoname () = FlexTyvar (Tyvar.newNoname {equality = false})
+
+    val unit = Cons (Tycon.tuple, [])
+
+    fun deArrow typ = 
+      case typ of
+        Cons (con, targs) =>
+           if Tycon.equals (con, Tycon.arrow) then
+             let
+               val _ = if List.length targs <> 2 then
+                         Error.bug "Arrow used as non-binary operator"
+                       else 
+                         ()
+               val [ta1, ta2] = targs
+             in
+               SOME (ta1, ta2)
+             end
+           else
+             NONE
+      | _ => NONE
   end
  
   type typ = Type.t
-
-  structure Scheme =
-  struct
-    datatype t = Scheme of tyvar list * typ
-    fun make s = Scheme s 
-    fun free (Scheme (bound, typ)) = 
-      VarSet.subtract (Type.free typ, bound)
-    fun layout (Scheme (bound, typ)) =
-      Layout.seq
-        [ Layout.str "forall "
-        , VarSet.layout bound
-        , Type.layout typ]
-  end
 
   structure Subst = 
   struct
@@ -89,10 +76,11 @@ struct
           [ Tyvar.layout tyvar
           , Layout.str "=>"
           , Type.layout typ]
-      fun eq (s1, s2) = (#1 s1) = (#1 s2)
+      fun eq (s1, s2) = Tyvar.equals ((#1 s1), (#1 s2))
       val { empty= empty
           , singleton = singleton
           , + = union
+          , - = subtract
           , areDisjoint = disjoint 
           , ...}
           = List.set {equals = eq , layout = layoutOne}
@@ -107,9 +95,30 @@ struct
           raise NotMergeable
       fun compose (rho1, rho2) = 
         raise NotUnifiable
+      
+      fun minus (rho, bound) = 
+        subtract (rho, List.map (bound, fn v => (v, Type.unit)))
+
       fun layout s =
         Layout.align (List.map (s, layoutOne))
     end
+  end
+
+  structure Scheme =
+  struct
+    datatype t = Scheme of tyvar list * typ
+    fun make s = Scheme s 
+
+    fun fromType t = make (VarSet.empty, t) 
+
+    fun free (Scheme (bound, typ)) = 
+      VarSet.subtract (Type.free typ, bound)
+
+    fun layout (Scheme (bound, typ)) =
+      Layout.seq
+        [ Layout.str "forall "
+        , VarSet.layout bound
+        , Type.layout typ]
   end
 
 
@@ -118,9 +127,9 @@ struct
     fun substOne (s as (tyvar0, typ0), t) =
       case t of
         FlexTyvar tyvar    => 
-          if tyvar0 = tyvar then typ0 else t
+          if Tyvar.equals (tyvar0, tyvar) then typ0 else t
       | RigdTyvar tyvar    => 
-          if tyvar0 = tyvar then typ0 else t
+          if Tyvar.equals (tyvar0, tyvar) then typ0 else t
       | Cons (tycon, typs) => 
           Cons (tycon, List.map (typs, fn t => substOne (s, t)))
   in
@@ -128,20 +137,20 @@ struct
 
     fun unify (typ1, typ2) = 
       case (typ1, typ2) of
-        (RigdTyvar x, RigdTyvar y) => if x = y then 
+        (RigdTyvar x, RigdTyvar y) => if Tyvar.equals (x, y) then 
                                         Subst.empty 
                                       else
                                         Error.bug "Not possible"
       | (RigdTyvar _, _)           => raise NotUnifiable
       | (_, RigdTyvar _)           => raise NotUnifiable
-      | (FlexTyvar x, FlexTyvar y) => if x = y then 
+      | (FlexTyvar x, FlexTyvar y) => if Tyvar.equals (x, y) then 
                                         Subst.empty 
                                       else
                                         Subst.make (x, typ2)
       | (FlexTyvar x, _)           => Subst.make (x, typ2)
       | (_, FlexTyvar y)           => Subst.make (y, typ1)
       | (Cons (con1, typs1), Cons (con2, typs2)) => 
-          if con1 = con2 then
+          if Tycon.equals (con1, con2) then
             unifyL (typs1, typs2) 
           else 
             raise NotUnifiable
@@ -166,12 +175,23 @@ struct
     fun inst (Scheme.Scheme (tyvars, typ)) = 
       let
         val len   = List.length tyvars
-        val ntyps = List.duplicate (len, FlexTyvar o Tyvar.make)
+        val ntyps = List.duplicate (len, fn () => FlexTyvar (Tyvar.newNoname {equality = false}))
       in
         List.fold2 (tyvars, ntyps, typ,
           fn (tyvar, ntyp, typ) =>
             subst (Subst.make (tyvar, ntyp), typ))
       end
+  end
+
+  local
+    val substType = subst
+  in
+    structure Scheme = 
+    struct
+      open Scheme
+      fun subst (rho, Scheme (bound, typ)) = 
+        Scheme (bound, substType (Subst.minus (rho, bound), typ))
+    end
   end
 
   structure TypFun = struct

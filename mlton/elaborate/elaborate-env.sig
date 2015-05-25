@@ -20,16 +20,22 @@ signature ELABORATE_ENV = sig
     val isCon : v -> bool
     val isVar : v -> bool
     val isExn : v -> bool
+    val deCon : v -> Con.t
+    val deVar : v -> Var.t
     val value : t -> v
     val scheme: t -> TyAtom.Scheme.t
+    val make  : v * TyAtom.Scheme.t -> t 
   end
 
   type t
 
-  val free : t -> TyAtom.VarSet.t
+  val empty : t
+  val free  : t -> TyAtom.VarSet.t
+  val subst : TyAtom.Subst.t * t -> t
 
   val lookupTycon : t * Ast.Longtycon.t -> TypDef.t option
   val lookupVid   : t * Ast.Longvid.t   -> ValDef.t option
+  val lookupCon   : t * Ast.Longcon.t   -> ValDef.t option
 
   (* extend current Type  Environment *)
   val extendTycon : Ast.Tycon.t * TypDef.t -> t -> t

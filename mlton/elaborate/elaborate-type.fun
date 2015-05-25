@@ -15,7 +15,7 @@ struct
     fun elaborateT env atyp = 
       case node atyp of
         Var atyvar => 
-          Type.FlexTyvar (Tyvar.make ())
+          Type.FlexTyvar (Tyvar.newNoname {equality = false})
       | Con (atycon, atyps) => 
           (case Env.lookupTycon (env, atycon) of
             NONE => 

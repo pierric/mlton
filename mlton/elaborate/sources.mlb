@@ -14,12 +14,15 @@ local
    ../core-ml/sources.mlb
 
    type-atom.sig
-   type-atom.sml
+   type-atom.fun
+   core-lang.sig
+   core-lang.fun
    elaborate-env.sig
    elaborate-env.fun
    elaborate-type.sig
    elaborate-type.fun
    elaborate-core.sig
+   elaborate-core.fun
 (*
    elaborate-programs.sig
    elaborate-programs.fun
