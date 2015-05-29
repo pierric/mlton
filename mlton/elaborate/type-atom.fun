@@ -44,8 +44,19 @@ struct
 
     fun newNoname () = FlexTyvar (Tyvar.newNoname {equality = false})
 
-    val unit = Cons (Tycon.tuple, [])
+    fun equals (t1, t2) = 
+      case (t1, t2) of
+        (FlexTyvar v1, FlexTyvar v2) =>Tyvar.equals (v1, v2)
+      | (RigdTyvar v1, RigdTyvar v2) => Tyvar.equals (v1, v2)
+      | (Cons (con1, args1), Cons (con2, args2)) =>
+          if Tycon.equals (con1, con2) then
+            List.forall2 (args1, args2, equals)
+          else
+            false
 
+    val bool = Cons (Tycon.bool, [])
+    fun arrow (t1,t2) = Cons (Tycon.arrow, [t1,t2])
+    
     fun deArrow typ = 
       case typ of
         Cons (con, targs) =>
@@ -93,11 +104,14 @@ struct
           union ss
         else 
           raise NotMergeable
+      
       fun compose (rho1, rho2) = 
         raise NotUnifiable
+      fun composeL [] = empty
+        | composeL (rho :: rhos) = compose (rho, composeL rhos)
       
       fun minus (rho, bound) = 
-        subtract (rho, List.map (bound, fn v => (v, Type.unit)))
+        subtract (rho, List.map (bound, fn v => (v, Type.bool)))
 
       fun layout s =
         Layout.align (List.map (s, layoutOne))
@@ -165,6 +179,27 @@ struct
                                   Subst.compose (rho', rho)
                                 end)
 
+
+    local 
+      fun loop (ty, rho, typs) =
+        case typs of
+          []      => rho
+        | x :: xs =>
+            let
+              val x    = subst (rho, x)
+              val rho' = unify (ty, x)
+              val ty'  = subst (rho', ty)
+              val rho' = Subst.compose (rho', rho)
+            in 
+              loop (ty', rho', xs)
+            end
+    in
+      fun unifyS typs = 
+        case typs of
+          []      => Subst.empty
+        | x :: xs => loop (x, Subst.empty, xs)
+    end
+    
     fun gen (env, typ) = 
       let 
         val qfv = VarSet.subtract (Type.free typ, env)

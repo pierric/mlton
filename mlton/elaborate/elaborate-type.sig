@@ -9,5 +9,5 @@ end
 signature ELABORATE_TYPE = sig
   include ELABORATE_TYPE_STRUCTS
 
-  val elaborateT : Env.t -> Ast.Type.t -> TyAtom.Type.t
+  val elaborateT : Env.t * Ast.Type.t -> TyAtom.Type.t
 end

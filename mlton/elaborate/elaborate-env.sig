@@ -16,10 +16,9 @@ signature ELABORATE_ENV = sig
 
   structure ValDef : sig
     type t
-    datatype v = VCON of Con.t | VVAR of Var.t | VEXN of Var.t
+    datatype v = VCON of Con.t | VVAR of Var.t
     val isCon : v -> bool
     val isVar : v -> bool
-    val isExn : v -> bool
     val deCon : v -> Con.t
     val deVar : v -> Var.t
     val value : t -> v
@@ -32,6 +31,8 @@ signature ELABORATE_ENV = sig
   val empty : t
   val free  : t -> TyAtom.VarSet.t
   val subst : TyAtom.Subst.t * t -> t
+
+  val append : t * t -> t
 
   val lookupTycon : t * Ast.Longtycon.t -> TypDef.t option
   val lookupVid   : t * Ast.Longvid.t   -> ValDef.t option

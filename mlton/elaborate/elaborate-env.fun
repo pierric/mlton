@@ -15,16 +15,14 @@ struct
   structure ValEnv = Env (structure Domain = Ast.Vid  )
   structure ValDef = 
   struct
-    datatype v = VCON of Con.t | VVAR of Var.t | VEXN of Var.t
+    datatype v = VCON of Con.t | VVAR of Var.t
     type t = v * TyAtom.Scheme.t
     exception DeConWrong and DeVarWrong
     fun isCon (VCON _) = true | isCon x = false
     fun isVar (VVAR _) = true | isVar x = false
-    fun isExn (VEXN _) = true | isExn x = false
     fun deCon (VCON con) = con
       | deCon _          = raise DeConWrong
     fun deVar (VVAR var) = var
-      | deVar (VEXN var) = var
       | deVar _          = raise DeVarWrong
     fun value  (vd : t) = #1 vd
     fun scheme (vd : t) = #2 vd
@@ -55,6 +53,12 @@ struct
     in
       {typenv = #typenv env, valenv = ve, freergdvar = #freergdvar env}
     end
+
+  fun append (env0 : t, env1 : t) = 
+    { typenv     = TypEnv.+ (#typenv env0, #typenv env1)
+    , valenv     = ValEnv.+ (#valenv env0, #valenv env1)
+    , freergdvar = TyAtom.VarSet.append (#freergdvar env0, #freergdvar env1)
+    }
 
   local 
     open Control

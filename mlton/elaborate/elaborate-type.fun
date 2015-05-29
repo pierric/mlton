@@ -12,7 +12,7 @@ struct
   local 
     open Ast.Type
   in
-    fun elaborateT env atyp = 
+    fun elaborateT (env, atyp) = 
       case node atyp of
         Var atyvar => 
           Type.FlexTyvar (Tyvar.newNoname {equality = false})
@@ -28,7 +28,8 @@ struct
               end
           | SOME typdef =>
               let 
-                val typs = Vector.toListMap (atyps, elaborateT env)
+                val typs = Vector.toListMap (atyps, fn atyp =>
+                             elaborateT (env, atyp))
               in
                 TypFun.apply (Env.TypDef.typfun typdef, typs)
               end)

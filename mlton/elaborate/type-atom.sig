@@ -20,10 +20,12 @@ signature TYPE_ATOM = sig
     datatype t = FlexTyvar of Tyvar.t
                | RigdTyvar of Tyvar.t
                | Cons of Tycon.t * (t list)
+    val equals: t * t -> bool
     val layout: t -> Layout.t
     val free  : t -> VarSet.t
 
-    val unit      : t
+    val bool : t
+    val arrow     : t * t -> t
     val newNoname : unit -> t
     val deArrow   : t -> (t * t) option
   end
@@ -34,6 +36,7 @@ signature TYPE_ATOM = sig
     val make    : Tyvar.t * Type.t -> t
     val merge   : t * t -> t
     val compose : t * t -> t
+    val composeL: t list -> t
     val minus   : t * VarSet.t -> t
     val layout  : t -> Layout.t
   end
@@ -54,6 +57,7 @@ signature TYPE_ATOM = sig
 
   val unify : Type.t * Type.t -> Subst.t
   val unifyL: Type.t list * Type.t list -> Subst.t
+  val unifyS: Type.t list -> Subst.t
   val subst : Subst.t * Type.t -> Type.t
   val gen   : VarSet.t * Type.t -> Scheme.t
   val inst  : Scheme.t -> Type.t
