@@ -9,9 +9,12 @@ signature TYPE_ATOM = sig
     type t
     val empty     : t
     val singleton : Tyvar.t -> t
+    val fromV     : Tyvar.t vector -> t
     val append    : t * t -> t
     val subtract  : t * t -> t
     val disjoint  : t * t -> bool
+    val equals    : t * t -> bool
+    val isEmpty   : t -> bool
     val unions    : t list -> t
     val layout    : t -> Layout.t
   end
@@ -28,6 +31,9 @@ signature TYPE_ATOM = sig
     val arrow     : t * t -> t
     val newNoname : unit -> t
     val deArrow   : t -> (t * t) option
+
+    val deArgs    : t -> (t list * t)
+    val args      : t list * t -> t
   end
   
   structure Subst  : sig
@@ -47,6 +53,7 @@ signature TYPE_ATOM = sig
     val fromType : Type.t -> t
     val free  : t -> VarSet.t
     val subst : Subst.t * t -> t
+    val gen   : VarSet.t * t -> t
     val layout: t -> Layout.t
   end
 

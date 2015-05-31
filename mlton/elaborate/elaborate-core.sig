@@ -17,10 +17,7 @@ end
 signature ELABORATE_CORE = sig
   include ELABORATE_CORE_STRUCTS
 
-  (*
-  val elaborateDec : Env.t * Ast.Dec.t -> Core.Dec.t * Env.t * TyAtom.Subst.t
-  *)
-  val elaboratePat : Env.t * Ast.Pat.t -> Core.Pat.t * TyAtom.Type.t * Env.t
+  val elaborateDec : Env.t * Ast.Dec.t -> Core.Dec.t list * Env.t * TyAtom.Subst.t
   val elaborateExp : Env.t * Ast.Exp.t -> Core.Exp.t * TyAtom.Subst.t
 end
 

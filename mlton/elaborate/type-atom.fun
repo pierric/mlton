@@ -7,16 +7,20 @@ struct
 
   structure VarSet = 
   struct
-  type t = tyvar list
-  val { empty       = empty
-      , singleton   = singleton
-      , +           = append
-      , -           = subtract
-      , areDisjoint = disjoint
-      , unions      = unions
-      , layout      = layout
-      , ...}
-      = List.set {equals = Tyvar.equals, layout = Tyvar.layout}
+    type t = tyvar list
+    val { empty       = empty
+        , singleton   = singleton
+        , +           = append
+        , -           = subtract
+        , areDisjoint = disjoint
+        , unions      = unions
+        , layout      = layout
+        , equals      = equals
+        , ...}
+        = List.set {equals = Tyvar.equals, layout = Tyvar.layout}
+    fun fromV vars = Vector.toList vars
+    fun isEmpty [] = true
+      | isEmpty _  = false
   end
 
   exception NotUnifiable
@@ -73,6 +77,22 @@ struct
            else
              NONE
       | _ => NONE
+
+    fun deArgs typ = 
+      let
+        val ret  = ref typ
+        val args = List.unfold (typ, fn typ => 
+                     case deArrow typ of
+                       x as SOME (_, r) => (ret := r; x)
+                     | NONE             => NONE)
+      in
+        (args, !ret)
+      end
+
+
+    fun args (args, ret) =
+      List.fold (args, ret, arrow)
+
   end
  
   type typ = Type.t
@@ -220,12 +240,21 @@ struct
 
   local
     val substType = subst
+    val genType   = gen
+    exception CompilerBugGenBoundedScheme
   in
     structure Scheme = 
     struct
       open Scheme
+
       fun subst (rho, Scheme (bound, typ)) = 
         Scheme (bound, substType (Subst.minus (rho, bound), typ))
+
+      fun gen (env, scheme as Scheme (bound, typ)) = 
+        if VarSet.isEmpty bound then
+          genType (env, typ)
+        else
+          raise CompilerBugGenBoundedScheme
     end
   end
 

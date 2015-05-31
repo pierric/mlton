@@ -1,16 +1,84 @@
 functor ElaborateCore (S: ELABORATE_CORE_STRUCTS) = 
 struct
   open S
+  
+  local 
+    structure Apat = Ast.Pat
+    structure Aexp = Ast.Exp
+  in
+    structure Flat =
+    struct
 
+      exception CompilerBugEmptyPatSeq
+
+      fun parsePats (env, pats) = 
+        case Vector.length pats of
+          0 => raise CompilerBugEmptyPatSeq
+        | 1 => Vector.sub (pats, 0)
+        | 2 => 
+            let 
+              val con = Vector.sub (pats, 0)
+              val arg = Vector.sub (pats, 1)
+              val pat = case Apat.node con of
+                          Apat.Var {name = vid, ...} =>
+                            Apat.App (Ast.Longvid.toLongcon vid, arg)
+                        | _ =>
+                            (Control.error (Apat.region con,
+                               Layout.str "misplaced pattern as constructor",
+                               Layout.empty);
+                             Apat.Wild)
+              val reg = Region.append (Apat.region con, Apat.region arg)
+            in
+              Apat.makeRegion (pat, reg)
+            end
+        | _ => 
+            let 
+              val con = Vector.sub (pats, 0)
+              val arg = Vector.dropPrefix (pats, 1)
+              val reg = Vector.fold (arg, Apat.region con,
+                          fn (p, r) => Region.append (r, Apat.region p))
+              val _ = Control.error (reg,
+                        Layout.str "pattern sequence do not form a valid pattern",
+                        Layout.empty)
+            in
+              con
+            end
+
+      fun parseExps (env, exps) = 
+        if (Vector.length exps = 1) then
+          Vector.sub (exps, 0)
+        else
+          let 
+            val exp0 = Vector.sub (exps, 0)
+            val exp1 = Vector.sub (exps, 1)
+            val apply = fn (a, b) => Aexp.app (b, a)
+          in
+            Vector.foldFrom (exps, 2, Aexp.app (exp0, exp1), apply)
+          end
+
+      fun parsePatsFunSig (env, pats) = 
+        let
+          val fname = Vector.sub (pats, 0)
+          val args  = Vector.dropPrefix (pats, 1)
+        in 
+          (fname, args)
+        end
+    end
+  end
+ 
   exception UnsupportedPatternSyntax
   exception UnsupportedExpressionSyntax
+  exception UnsupportedDeclarationSyntax
+  exception CompilerBugFunTypeNotArrow
   local
     structure Apat = Ast.Pat
     structure Cpat = Core.Pat
     structure Aexp = Ast.Exp
-    structure Alam = Ast.Match
     structure Cexp = Core.Exp
+    structure Alam = Ast.Match
     structure Clam = Core.Lambda
+    structure Adec = Ast.Dec
+    structure Cdec = Core.Dec
     open Control
   in
 
@@ -125,13 +193,7 @@ struct
           end
       | Apat.FlatApp pats =>
           let
-            val _   = if Vector.length pats <> 1 then
-                        error (Apat.region apat,
-                          Layout.str "",
-                          Layout.empty)
-                      else
-                        ()
-            val pat = Vector.sub (pats, 0)
+            val pat = Flat.parsePats (env, pats)
           in
             elaboratePat (env, pat)
           end
@@ -232,17 +294,7 @@ struct
             (Cexp.lambda clam, rho)
           end
       | Aexp.FlatApp aexps =>
-          if (Vector.length aexps = 1) then
-            elaborateExp (env, Vector.sub (aexps, 0))
-          else
-            let 
-              val aexp0 = Vector.sub (aexps, 0)
-              val aexp1 = Vector.sub (aexps, 1)
-              val apply = fn (a, b) => Aexp.app (b, a)
-              val aexp  = Vector.foldFrom (aexps, 2, Aexp.app (aexp0, aexp1), apply)
-            in
-              elaborateExp (env, aexp)
-            end
+          elaborateExp (env, Flat.parseExps (env, aexps))
       | Aexp.Andalso (aexp1, aexp2) =>
           let
             val (cexp0, rho0) = elaborateExp (env, aexp1)
@@ -297,5 +349,322 @@ struct
       in 
         (clam, rho')
       end
+
+    and elaborateDec (env : Env.t, adec : Adec.t) : Cdec.t list * Env.t *
+    TyAtom.Subst.t =
+      case Adec.node adec of
+        Adec.SeqDec decs   => 
+          let 
+           val rho0  = TyAtom.Subst.empty
+           val state = ( env         (*base environment*)
+                       , Env.empty   (*new  environment*)
+                       , []          (*all core decs *)
+                       , rho0        (*composed substitution*)
+                       )
+           val state = Vector.fold (decs, state,
+                         fn (dec, (e0, en, cdecs, rho)) => 
+                           let 
+                             val env = Env.append (e0, en)
+                             val (cdecs1, en', rho1) = elaborateDec (env, dec)
+                             val cdecs = List.map (cdecs, 
+                                           fn cdec => Cdec.subst (rho1, cdec))
+                           in
+                             ( Env.subst  (rho1, e0)
+                             , Env.append (Env.subst (rho1, en), en')
+                             , cdecs @ cdecs1
+                             , TyAtom.Subst.compose (rho1, rho) 
+                             )
+                           end)
+          in
+            (#3 state, #2 state, #4 state)
+          end
+      | Adec.Local (d1,d2) =>
+          let
+            val (cdecs1, en1, rho1) = elaborateDec (env, d1)
+            val env = Env.append (Env.subst (rho1, env), en1)
+            val (cdecs2, en2, rho2) = elaborateDec (env, d2)
+            val en1 = Env.subst (rho2, en1)
+            val rho = TyAtom.Subst.compose (rho2, rho1)
+          in
+            (cdecs2, Env.append (en1, en2), rho)
+          end
+      | Adec.Val {tyvars = vars, vbs = vbs, rvbs = rvbs } =>
+          let 
+            val vars = TyAtom.VarSet.fromV vars
+
+            fun elabVB (env, pat, exp) = 
+              let
+                val _ = if TyAtom.VarSet.disjoint (Env.free env, vars) then
+                          ()
+                        else
+                          error (Adec.region adec,
+                            Layout.str "rebind a type variable",
+                            Layout.empty)
+                val (cpat, ty1, en) = elaboratePat (env, pat)
+                val (cexp, rho)     = elaborateExp
+                                        (Env.extendRgdFV vars env,
+                                         exp)
+                val en   = Env.subst (rho, en)
+                val env  = Env.subst (rho, env)
+                val ty1  = TyAtom.subst (rho, ty1)
+                val rho' = TyAtom.unify (ty1, Cexp.ty cexp)
+                val cexp = Cexp.subst (rho', cexp)
+                val en   = Env.subst (rho', en)
+                val env  = Env.subst (rho', env)
+                val rho''= TyAtom.Subst.compose (rho', rho)
+              in
+                ((cpat, cexp), Env.gen (Env.free env, en), rho'')
+              end
+
+            fun elabRVB (env, pat, lam) = 
+              let
+                val _ = if TyAtom.VarSet.disjoint (Env.free env, vars) then
+                          ()
+                        else
+                          error (Adec.region adec,
+                            Layout.str "rebind a type variable",
+                            Layout.empty)
+                val (cpat, ty1, en) = elaboratePat (env, pat)
+                val cvar = case cpat of 
+                             Cpat.Var v => v
+                           | _          =>
+                               (error (Apat.region pat,
+                                  Layout.str "only vid is allowed in recursive binding",
+                                  Layout.empty);
+                                Core.Var.newNoname ())
+                val (clam, rho) = elaborateLam 
+                                    (Env.extendRgdFV vars 
+                                      (Env.append (env, en)),
+                                     lam)
+                val ty1  = TyAtom.subst (rho, ty1)
+                val rho' = TyAtom.unify (ty1, TyAtom.Type.arrow (Clam.ty clam))
+                val ty1  = TyAtom.subst (rho', ty1)
+                val clam = Clam.subst (rho', clam)
+                val rho''= TyAtom.Subst.compose (rho', rho)
+                val en   = Env.subst (rho'', en)
+                val env  = Env.subst (rho'', env)
+              in
+                ((cvar, clam), Env.gen (Env.free env, en), rho'')
+              end
+
+            val state = (env, Env.empty, [], TyAtom.Subst.empty) 
+            val (e0, en, cs, rho) =
+              Vector.fold (vbs, state,
+                fn ({pat=p, exp=b}, (e0, en, cs, rho)) => 
+                  let 
+                    val (clause1, en1, rho1) = elabVB (e0, p, b)
+                    val cs = List.map (cs,
+                               fn (p, e) =>
+                                 (p, Cexp.subst (rho1, e)))
+                  in
+                    ( Env.subst (rho1, e0)
+                    , Env.append (Env.subst (rho1, en), en1)
+                    , clause1 :: cs
+                    , TyAtom.Subst.compose (rho1, rho)
+                    )
+                  end)
+
+             val state = (e0, Env.empty, [], rho)
+             val (e0', en', cs', rho') =
+               Vector.fold (rvbs, state, 
+                 fn ({pat=p,match=m}, (e0, en, cs, rho)) =>
+                 let
+                   val (clause1, en1, rho1) = elabRVB (e0, p, m)
+                   val cs = List.map (cs,
+                              fn (v, l) => 
+                                (v, Clam.subst (rho1, l)))
+                 in
+                   ( Env.subst (rho1, e0)
+                   , Env.append (Env.subst (rho1, en), en1)
+                   , clause1 :: cs
+                   , TyAtom.Subst.compose (rho1, rho)
+                   )
+                 end)
+
+          in
+            ([Cdec.valbind { vars       = vars
+                           , valbind    = Vector.rev (Vector.fromList cs )
+                           , recvalbind = Vector.rev (Vector.fromList cs')
+                           }],
+             Env.append (Env.subst (rho', en), en'),
+             rho')
+          end
+      | Adec.Fun (vars, fundef) => 
+          let
+            val vars = TyAtom.VarSet.fromV vars
+            val _ = if TyAtom.VarSet.disjoint (Env.free env, vars) then
+                      ()
+                    else
+                      error (Adec.region adec,
+                        Layout.str "rebind a type variable",
+                        Layout.empty)
+            val cnt   = Vector.length fundef
+            val cvars = Vector.tabulate (cnt, fn _ => Core.Var.newNoname ())
+
+            type funsig = Core.Var.t * int * TyAtom.Type.t * (Cpat.t vector * Env.t) vector
+            fun elabFunSig fbs : funsig = 
+              let 
+                val fname = ref NONE
+                val arity = ref NONE
+                val sigs  = ref []
+                val rets  = ref []
+                val _ = Vector.foreach (fbs, 
+                          fn {pats = ps, body = e, resultType = rt} => 
+                            let
+                              (* By the grammar of parser, the ps contains at
+                               * least one element. *)
+                              val (namepat, argpats) = Flat.parsePatsFunSig (env, ps)
+                              val argnum = Vector.length argpats
+                              val _ = if argnum = 0 then
+                                        Control.error (Apat.region namepat,
+                                          Layout.str "",
+                                          Layout.empty)
+                                      else
+                                        ()
+                              val name = case Apat.node namepat of
+                                           Apat.Var {name = vid,...} => 
+                                             let 
+                                               val (strs, id) = Ast.Longvid.split vid
+                                             in
+                                               if not (List.isEmpty strs) then
+                                                 (Control.warning (Apat.region namepat,
+                                                    Layout.str "function name should be short",
+                                                    Layout.empty);
+                                                  Core.Var.newNoname ())
+                                               else
+                                                 Core.Var.newString (Ast.Vid.toString id)
+                                             end
+                                          | _ =>
+                                              let
+                                                val _ = 
+                                                  Control.error (Apat.region namepat,
+                                                    Layout.str "misplaced pattern",
+                                                    Layout.empty)
+                                              in
+                                                Core.Var.newNoname ()
+                                              end
+                              val _ = case !fname of 
+                                        NONE       => fname := SOME name
+                                      | SOME fname => if Core.Var.equals (fname, name) then
+                                                        Control.error (Apat.region namepat,
+                                                          Layout.str "",
+                                                          Layout.empty)
+                                                      else
+                                                        ()
+                              val _ = case !arity of
+                                        NONE       => arity := SOME argnum
+                                      | SOME arity => if arity <> argnum then
+                                                        Control.error (Apat.region namepat,
+                                                          Layout.str "",
+                                                          Layout.empty)
+                                                      else
+                                                        ()
+                              val sig_ = Vector.map (argpats, 
+                                           fn pat => elaboratePat (env, pat))
+                              val rett = case rt of
+                                           NONE     => TyAtom.Type.newNoname ()
+                                         | SOME typ => ElabTy.elaborateT (env,typ)
+
+                              val _   = sigs := sig_ :: !sigs
+                              val _   = rets := rett :: !rets
+                            in
+                              ()
+                            end)
+
+                (* By the grammar, there are at least one fun binding *)
+                val fname = Option.valOf (!fname)
+                val arity = Option.valOf (!arity)
+                (* (cpat, type, env) vector for each fun binding *)
+                val sigs  = Vector.rev (Vector.fromList (!sigs))
+                val rets  = !rets
+                
+                (* types of each arg*)
+                val argstypss = Vector.tabulate (arity,
+                                  fn idx => 
+                                    Vector.map (sigs, 
+                                      fn sig_ => 
+                                        #2 (Vector.sub (sig_,idx))))
+                (* unify types of each arg *)
+                val argsrhos  = Vector.map  (argstypss, TyAtom.unifyS o Vector.toList)
+                (* form the final type of each arg *)
+                val argstyps  = Vector.map2 (argsrhos, argstypss, fn (rho, typs) => 
+                                  TyAtom.subst (rho, Vector.sub (typs, 0)))
+                val rettyp    = TyAtom.subst (TyAtom.unifyS rets, List.first rets)
+                val funtyp    = Vector.foldr (argstyps, rettyp, TyAtom.Type.arrow)
+                
+                val cpatsenv = Vector.map (sigs, 
+                                 fn argv =>
+                                   let
+                                     val cpats = Vector.tabulate (arity,
+                                                   fn idx => 
+                                                     #1 (Vector.sub (argv, idx)))
+                                     val envs  = Vector.tabulate (arity,
+                                                   fn idx =>
+                                                     let 
+                                                       val env = #3 (Vector.sub (argv, idx))
+                                                       val rho = Vector.sub (argsrhos, idx)
+                                                     in
+                                                       Env.subst (rho, env)
+                                                     end)
+                                     (* concat envs of each argument *)
+                                     val env = Vector.fold (envs, Env.empty, Env.append)
+                                   in
+                                     (cpats, env)
+                                   end)
+              in
+                (fname, arity, funtyp, cpatsenv)
+              end
+
+            type funbind = {body: Aexp.t,
+                            pats: Apat.t vector,
+                            resultType: Ast.Type.t option}
+            fun elabFunBdy (env, rho, (fname, arity, typ, argsenv), fbs: funbind vector) :
+                           Clam.t * TyAtom.Type.t * TyAtom.Subst.t * Env.t = 
+              let
+                val (argtyps, rettyp) = TyAtom.Type.deArgs typ
+                val state = (env, rho, [], [])
+                val (env, rho, cexps, typs) =
+                  Vector.fold2 (argsenv, fbs, state, 
+                    fn ((_, env'), fb, (env, rho, cexps, typs)) =>
+                      let
+                        val env = Env.subst (rho, Env.append (env, env'))
+                        val (cexp, rho1) = elaborateExp (env, #body fb)
+                      in
+                        ( env
+                        , TyAtom.Subst.compose (rho1, rho)
+                        , cexp :: cexps
+                        , Cexp.ty cexp :: typs
+                        )
+                      end)
+                val typs  = List.revMap (rettyp::typs, fn typ => TyAtom.subst (rho, typ))
+                val rho'  = TyAtom.unifyS typs
+                val rettyp= TyAtom.subst (rho', rettyp)
+                val rho   = TyAtom.Subst.compose (rho', rho)
+                val argtyps = List.map (argtyps, fn typ => TyAtom.subst (rho,typ))
+                val argvars = List.tabulate (arity, fn _ => Core.Var.newNoname ())
+                val funtyp  = TyAtom.Type.args (argtyps, rettyp)
+
+                val env   = Env.subst (rho, env)
+                val cexps = List.revMap (cexps, fn cexp => Cexp.subst (rho, cexp))
+
+                val body  = Cexp.casepar (Vector.fromList 
+                                            (List.map2 (argvars, argtyps, Cexp.var)), 
+                                          Vector.zip 
+                                            (Vector.map (argsenv, #1), 
+                                            (Vector.fromList cexps)))
+                val clam = List.fold2 (argvars, argtyps, body,
+                             Cexp.lambda o Clam.make)
+                val clam = case Cexp.node clam of
+                             Cexp.Lambda x => x
+              in
+                (clam, funtyp, rho, env)
+              end
+
+            val sigs : funsig vector = Vector.map (fundef, elabFunSig)
+          in
+            raise UnsupportedDeclarationSyntax
+          end
+
+      | _ => raise UnsupportedDeclarationSyntax
   end
 end
