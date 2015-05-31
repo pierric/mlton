@@ -1,6 +1,7 @@
 signature CORE_LANG_STRUCTS = sig
   include ATOMS
   structure TyAtom : TYPE_ATOM
+  sharing TyAtom.Tyvar = Tyvar
 end
 
 signature CORE_LANG = sig
@@ -34,6 +35,7 @@ signature CORE_LANG = sig
                   | Lambda      of lambda
                   | Let         of dec vector * t 
                   | Seq         of t * t
+                  | CasePar     of t vector * ((Pat.t vector * t) vector)
 
     val make : node * TyAtom.Type.t -> t
     val ty   : t -> TyAtom.Type.t
@@ -47,6 +49,7 @@ signature CORE_LANG = sig
     val lambda : lambda -> t
     val app    : t * t -> t
     val casee  : t * (Pat.t * t) vector ->  t
+    val casepar: t vector * (Pat.t vector * t) vector -> t
 
     val truee  : t
     val falsee : t
@@ -65,6 +68,17 @@ signature CORE_LANG = sig
 
   structure Dec: sig
     type t
+
+    val subst   : TyAtom.Subst.t * t -> t
+
+    val valbind : { vars      : TyAtom.VarSet.t
+                  , valbind   : (Pat.t * Exp.t) vector
+                  , recvalbind: (Var.t * Lambda.t) vector
+                  } -> t
+    val funbind : { vars      : TyAtom.VarSet.t
+                  , name      : Var.t
+                  , body      : Lambda.t 
+                  } vector -> t
   end
 
   sharing type Exp.lambda = Lambda.t

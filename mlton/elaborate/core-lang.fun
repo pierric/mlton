@@ -30,10 +30,11 @@ struct
                 | Lambda      of lambda
                 | Let         of dec vector * exp 
                 | Seq         of exp * exp
+                | CasePar     of exp vector * ((Pat.t vector * exp) vector)
   and    lambda = L of Var.t * TyAtom.Type.t * exp
   and    dec    = Val of { vars       : TyAtom.VarSet.t
-                         , valbind    : (Pat.t * exp) list
-                         , recvalbind : (Var.t * lambda) list
+                         , valbind    : (Pat.t * exp) vector
+                         , recvalbind : (Var.t * lambda) vector
                          }
                 | Fun of { vars       : TyAtom.VarSet.t
                          , name       : Var.t
@@ -66,8 +67,8 @@ struct
       L (v, TyAtom.subst (rho, t), substExp (rho, e)) 
   and substDec (rho, Val {vars = v, valbind = b, recvalbind = r}) =
       Val { vars       = v, 
-            valbind    = List.map (b, substPatExp rho),
-            recvalbind = List.map (r, substVarLam rho) }
+            valbind    = Vector.map (b, substPatExp rho),
+            recvalbind = Vector.map (r, substVarLam rho) }
   and substPatExp rho (p, e) = (p, substExp (rho, e))
   and substVarLam rho (v, l) = (v, substLam (rho ,l))
 
@@ -117,15 +118,26 @@ struct
             raise CompilerBugCannotMakeAppExp
       end
 
+
+    exception CompilerBugEmptyCaseClause
     fun casee (e, cs) = 
       let
-        exception CompilerBugEmptyCaseClause
         val ty = if Vector.length cs = 0 then
                    raise CompilerBugEmptyCaseClause
                  else
                    (ty o #2 o Vector.sub) (cs, 0)
       in
         E (Case (e, cs), ty)
+      end
+
+    fun casepar (es, cs) = 
+      let
+        val ty = if Vector.length cs = 0 then
+                   raise CompilerBugEmptyCaseClause
+                 else
+                   (ty o #2 o Vector.sub) (cs, 0)
+      in
+        E (CasePar (es, cs), ty)
       end
 
     val truee  = E (Constructor (Con.fromBool true ), TyAtom.Type.bool)
@@ -144,6 +156,10 @@ struct
   structure Dec =
   struct
     datatype t = datatype dec
+
+    val subst = substDec
+    fun valbind x = Val x
+    fun funbind x = Fun x
   end
 
 end
