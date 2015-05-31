@@ -30,6 +30,7 @@ signature ELABORATE_ENV = sig
 
   val empty : t
   val free  : t -> TyAtom.VarSet.t
+  val gen   : TyAtom.VarSet.t * t -> t
   val subst : TyAtom.Subst.t * t -> t
 
   val append : t * t -> t

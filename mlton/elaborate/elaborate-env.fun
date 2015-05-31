@@ -45,6 +45,23 @@ struct
     in
       !fvset
     end
+
+  fun gen (vars, env : t) =
+    let
+      val valenv = ValEnv.map (#valenv env, 
+                     fn valdef => 
+                       let 
+                         val v = ValDef.value  valdef
+                         val s = ValDef.scheme valdef
+                       in
+                         ValDef.make (v, TyAtom.Scheme.gen (vars, s))                         
+                       end)
+    in
+      { typenv     = #typenv env
+      , valenv     = valenv
+      , freergdvar = #freergdvar env
+      }
+    end
   
   fun subst (rho, env : t) = 
     let 
