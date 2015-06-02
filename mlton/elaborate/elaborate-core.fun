@@ -70,6 +70,7 @@ struct
   exception UnsupportedExpressionSyntax
   exception UnsupportedDeclarationSyntax
   exception CompilerBugFunTypeNotArrow
+  exception CompilerBugFunNameInvalid
   local
     structure Apat = Ast.Pat
     structure Cpat = Core.Pat
@@ -261,9 +262,15 @@ struct
           in 
             (Cexp.ifthen (cexp0, cexp1, cexp2), rho4)
           end
-      (*
-      | Aexp.Let (dec, t) =>
-      *)
+      | Aexp.Let (adec, aexp) =>
+          let
+            val (cdecs, env', rho) = elaborateDec (env, adec)
+            val env = Env.append (Env.subst (rho, env), env')
+            val (cexp, rho')       = elaborateExp (env, aexp)
+            val rho = TyAtom.Subst.compose (rho', rho)
+          in
+            (Cexp.lete (Vector.fromList cdecs, cexp), rho)
+          end
       | Aexp.Constraint (aexp, aty) =>
           let 
             val (cexp, rho0) = elaborateExp (env, aexp)
@@ -491,8 +498,8 @@ struct
           end
       | Adec.Fun (vars, fundef) => 
           let
-            val vars = TyAtom.VarSet.fromV vars
-            val _ = if TyAtom.VarSet.disjoint (Env.free env, vars) then
+            val bound = TyAtom.VarSet.fromV vars
+            val _ = if TyAtom.VarSet.disjoint (Env.free env, bound) then
                       ()
                     else
                       error (Adec.region adec,
@@ -501,7 +508,7 @@ struct
             val cnt   = Vector.length fundef
             val cvars = Vector.tabulate (cnt, fn _ => Core.Var.newNoname ())
 
-            type funsig = Core.Var.t * int * TyAtom.Type.t * (Cpat.t vector * Env.t) vector
+            type funsig = Ast.Vid.t * int * TyAtom.Type.t * (Cpat.t vector * Env.t) vector
             fun elabFunSig fbs : funsig = 
               let 
                 val fname = ref NONE
@@ -524,15 +531,15 @@ struct
                               val name = case Apat.node namepat of
                                            Apat.Var {name = vid,...} => 
                                              let 
-                                               val (strs, id) = Ast.Longvid.split vid
+                                               val (strs, vid) = Ast.Longvid.split vid
+                                               val _ =  if not (List.isEmpty strs) then
+                                                          Control.warning (Apat.region namepat,
+                                                            Layout.str "function name should be short",
+                                                            Layout.empty)
+                                                        else 
+                                                          ()
                                              in
-                                               if not (List.isEmpty strs) then
-                                                 (Control.warning (Apat.region namepat,
-                                                    Layout.str "function name should be short",
-                                                    Layout.empty);
-                                                  Core.Var.newNoname ())
-                                               else
-                                                 Core.Var.newString (Ast.Vid.toString id)
+                                               vid
                                              end
                                           | _ =>
                                               let
@@ -541,11 +548,11 @@ struct
                                                     Layout.str "misplaced pattern",
                                                     Layout.empty)
                                               in
-                                                Core.Var.newNoname ()
+                                                Ast.Vid.bogus
                                               end
                               val _ = case !fname of 
                                         NONE       => fname := SOME name
-                                      | SOME fname => if Core.Var.equals (fname, name) then
+                                      | SOME fname => if Ast.Vid.equals (fname, name) then
                                                         Control.error (Apat.region namepat,
                                                           Layout.str "",
                                                           Layout.empty)
@@ -618,7 +625,9 @@ struct
             type funbind = {body: Aexp.t,
                             pats: Apat.t vector,
                             resultType: Ast.Type.t option}
-            fun elabFunBdy (env, rho, (fname, arity, typ, argsenv), fbs: funbind vector) :
+            fun elabFunBdy (env, rho, bound,
+                            (fname, arity, typ, argsenv): funsig,
+                            fbs                         : funbind vector) :
                            Clam.t * TyAtom.Type.t * TyAtom.Subst.t * Env.t = 
               let
                 val (argtyps, rettyp) = TyAtom.Type.deArgs typ
@@ -627,10 +636,11 @@ struct
                   Vector.fold2 (argsenv, fbs, state, 
                     fn ((_, env'), fb, (env, rho, cexps, typs)) =>
                       let
-                        val env = Env.subst (rho, Env.append (env, env'))
-                        val (cexp, rho1) = elaborateExp (env, #body fb)
+                        val env  = Env.subst (rho, Env.append (env, env'))
+                        val env' = Env.extendRgdFV bound env
+                        val (cexp, rho1) = elaborateExp (env', #body fb)
                       in
-                        ( env
+                        ( env                            (* bound are passed out *)
                         , TyAtom.Subst.compose (rho1, rho)
                         , cexp :: cexps
                         , Cexp.ty cexp :: typs
@@ -661,8 +671,45 @@ struct
               end
 
             val sigs : funsig vector = Vector.map (fundef, elabFunSig)
+            val env'  = Vector.fold2 (sigs, cvars, env, 
+                          fn ((fname, _, typ, _), cvar, env) => 
+                            let 
+                              val vd = Env.ValDef.make 
+                                         (Env.ValDef.VVAR cvar,
+                                          TyAtom.Scheme.fromType typ)
+                            in
+                              Env.extendVid (fname, vd) env
+                            end)
+
+            val state = (env', TyAtom.Subst.empty, [],[])
+            val (_, rho, clams, ctyps) =
+              Vector.fold2 (sigs, fundef, state,
+                fn (sig_, fbs, (env, rho,clams,ctyps)) => 
+                  let
+                    val (clam,ctyp,rho,env) =
+                      elabFunBdy (env, rho, bound, sig_, fbs)
+                  in
+                    (env, rho, clam::clams, ctyp::ctyps)
+                  end)
+            val clams = Vector.rev (Vector.fromList clams)
+            val clams = Vector.map (clams, fn clam => Clam.subst (rho, clam))
+            val ctyps = Vector.rev (Vector.fromList ctyps)
+            val ctyps = Vector.map (ctyps, fn ctyp => TyAtom.subst (rho, ctyp))
+            val free= Env.free (Env.subst (rho, env))
+            val env'= Vector.fold3 (sigs, cvars, ctyps, Env.empty,
+                        fn (sig_, cvar, typ, env) =>
+                          let
+                            val vd = Env.ValDef.make 
+                                           (Env.ValDef.VVAR cvar,
+                                            TyAtom.gen (free, typ))
+                            in
+                              Env.extendVid (#1 sig_, vd) env
+                          end)
           in
-            raise UnsupportedDeclarationSyntax
+            ( [Cdec.funbind { vars = bound,
+                              decs = Vector.zip (cvars, clams) }]
+            , env'
+            , rho)
           end
 
       | _ => raise UnsupportedDeclarationSyntax

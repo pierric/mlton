@@ -23,12 +23,8 @@ local
    elaborate-type.fun
    elaborate-core.sig
    elaborate-core.fun
-(*
-   elaborate-programs.sig
-   elaborate-programs.fun
-   elaborate-mlbs.sig
-   elaborate-mlbs.fun
-*)
+   elaborate-program.sig
+   elaborate-program.fun
 in
    signature CONST_TYPE
 (* functor Elaborate *)
