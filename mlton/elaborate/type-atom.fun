@@ -18,7 +18,8 @@ struct
         , equals      = equals
         , ...}
         = List.set {equals = Tyvar.equals, layout = Tyvar.layout}
-    fun fromV vars = Vector.toList vars
+    fun fromV vars = Vector.toList   vars
+    fun toV   vars = Vector.fromList vars
     fun isEmpty [] = true
       | isEmpty _  = false
   end
@@ -31,7 +32,7 @@ struct
   struct
     datatype t = FlexTyvar of tyvar
                | RigdTyvar of tyvar
-               | Cons of tycon * (t list)
+               | Cons of tycon * (t vector)
 
     fun layout typ = 
       case typ of
@@ -39,12 +40,13 @@ struct
       | RigdTyvar tyvar    => Tyvar.layout tyvar
       | Cons (tycon, typs) => Layout.seq
                                 [ Tycon.layout tycon
-                                , List.layout layout typs ]
+                                , Vector.layout layout typs ]
+
     fun free typ = 
       case typ of
         RigdTyvar x    => VarSet.singleton x
       | FlexTyvar x    => VarSet.singleton x
-      | Cons (_, typs) => VarSet.unions (List.map (typs, free))
+      | Cons (_, typs) => VarSet.unions (Vector.toListMap (typs, free))
 
     fun newNoname () = FlexTyvar (Tyvar.newNoname {equality = false})
 
@@ -54,23 +56,26 @@ struct
       | (RigdTyvar v1, RigdTyvar v2) => Tyvar.equals (v1, v2)
       | (Cons (con1, args1), Cons (con2, args2)) =>
           if Tycon.equals (con1, con2) then
-            List.forall2 (args1, args2, equals)
+            Vector.forall2 (args1, args2, equals)
           else
             false
+      | _  => false
 
-    val bool = Cons (Tycon.bool, [])
-    fun arrow (t1,t2) = Cons (Tycon.arrow, [t1,t2])
+    val bool = Cons (Tycon.bool, Vector.new0 ())
+
+    fun arrow (t1,t2) = Cons (Tycon.arrow, Vector.new2 (t1,t2))
     
     fun deArrow typ = 
       case typ of
         Cons (con, targs) =>
            if Tycon.equals (con, Tycon.arrow) then
              let
-               val _ = if List.length targs <> 2 then
+               val _ = if Vector.length targs <> 2 then
                          Error.bug "Arrow used as non-binary operator"
                        else 
                          ()
-               val [ta1, ta2] = targs
+               val ta1 = Vector.sub (targs, 0)
+               val ta2 = Vector.sub (targs, 1)
              in
                SOME (ta1, ta2)
              end
@@ -92,6 +97,42 @@ struct
 
     fun args (args, ret) =
       List.fold (args, ret, arrow)
+
+    fun deConOpt typ : (tycon * t vector) option =
+      case typ of
+        Cons conargs => SOME conargs
+      | _            => NONE
+
+    fun isCharX typ  : bool =
+      case typ of
+        Cons (c, _)  =>  Tycon.isCharX c
+      | _            => false
+
+    fun isInt   typ  : bool =
+      case typ of
+        Cons (c, _)  => Tycon.isIntX c
+      | _            => false
+
+    fun tuple   typs =
+      Cons (Tycon.tuple, typs)
+
+    val unit = tuple (Vector.new0 ())
+
+    fun deRecord typ =
+      Error.bug "record is not supported"
+
+    fun makeHom {con = mapcon, var = mapvar} =
+      let 
+        fun hom typ =
+          case typ of
+            Cons (con, args) => mapcon (con, Vector.map (args, hom))
+          | RigdTyvar tyvar  => mapvar tyvar
+          | FlexTyvar tyvar  => mapvar tyvar
+
+        fun destroy () = ()
+      in
+        {destroy = destroy, hom = hom}
+      end
 
   end
  
@@ -165,7 +206,7 @@ struct
       | RigdTyvar tyvar    => 
           if Tyvar.equals (tyvar0, tyvar) then typ0 else t
       | Cons (tycon, typs) => 
-          Cons (tycon, List.map (typs, fn t => substOne (s, t)))
+          Cons (tycon, Vector.map (typs, fn t => substOne (s, t)))
   in
     fun subst (rho, typ) = List.fold (rho, typ, substOne)
 
@@ -185,11 +226,11 @@ struct
       | (_, FlexTyvar y)           => Subst.make (y, typ1)
       | (Cons (con1, typs1), Cons (con2, typs2)) => 
           if Tycon.equals (con1, con2) then
-            unifyL (typs1, typs2) 
+            unifyV (typs1, typs2) 
           else 
             raise NotUnifiable
 
-    and unifyL (vt1, vt2) = List.fold2 (vt1, vt2, Subst.empty, 
+    and unifyV (vt1, vt2) = Vector.fold2 (vt1, vt2, Subst.empty, 
                               fn (ty1, ty2, rho) => 
                                 let
                                   val ty1' = subst (rho,ty1)
@@ -198,6 +239,8 @@ struct
                                 in
                                   Subst.compose (rho', rho)
                                 end)
+
+    fun unifyL (vt1, vt2) = unifyV (Vector.fromList vt1, Vector.fromList vt2)
 
 
     local 
