@@ -2,7 +2,7 @@ signature CORE_LANG_STRUCTS = sig
   include ATOMS
   structure TyAtom : TYPE_ATOM
   structure CoreML : CORE_ML
-  sharing TyAtom.Tyvar = Tyvar
+  sharing CoreML.Tyvar = TyAtom.Tyvar = Tyvar
   sharing CoreML.Var   = Var
   sharing CoreML.Con   = Con
   sharing CoreML.Const = Const
