@@ -36,10 +36,9 @@ struct
                          , valbind    : (Pat.t * exp) vector
                          , recvalbind : (Var.t * lambda) vector
                          }
-                | Fun of { vars       : TyAtom.VarSet.t
-                         , name       : Var.t
-                         , body       : lambda
-                         } vector
+                | Fun of { vars      : TyAtom.VarSet.t
+                         , decs      : (Var.t * lambda) vector
+                         }
 
  
   fun tyExp    (E (_,t))     = t
@@ -117,6 +116,8 @@ struct
         | NONE =>
             raise CompilerBugCannotMakeAppExp
       end
+
+    fun lete (d, e) = E (Let (d, e), ty e)
 
 
     exception CompilerBugEmptyCaseClause

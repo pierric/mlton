@@ -45,6 +45,7 @@ signature CORE_LANG = sig
     val con  : Con.t   * TyAtom.Type.t -> t
     val const: Const.t * TyAtom.Type.t -> t
     val seq  : t * t -> t
+    val lete : dec vector * t -> t
     val ifthen : t * t * t -> t
     val lambda : lambda -> t
     val app    : t * t -> t
@@ -76,9 +77,8 @@ signature CORE_LANG = sig
                   , recvalbind: (Var.t * Lambda.t) vector
                   } -> t
     val funbind : { vars      : TyAtom.VarSet.t
-                  , name      : Var.t
-                  , body      : Lambda.t 
-                  } vector -> t
+                  , decs      : (Var.t * Lambda.t) vector
+                  } -> t
   end
 
   sharing type Exp.lambda = Lambda.t
