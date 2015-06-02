@@ -10,6 +10,7 @@ signature TYPE_ATOM = sig
     val empty     : t
     val singleton : Tyvar.t -> t
     val fromV     : Tyvar.t vector -> t
+    val toV       : t-> Tyvar.t vector
     val append    : t * t -> t
     val subtract  : t * t -> t
     val disjoint  : t * t -> bool
@@ -22,7 +23,7 @@ signature TYPE_ATOM = sig
   structure Type : sig
     datatype t = FlexTyvar of Tyvar.t
                | RigdTyvar of Tyvar.t
-               | Cons of Tycon.t * (t list)
+               | Cons of Tycon.t * (t vector)
     val equals: t * t -> bool
     val layout: t -> Layout.t
     val free  : t -> VarSet.t
@@ -34,6 +35,16 @@ signature TYPE_ATOM = sig
 
     val deArgs    : t -> (t list * t)
     val args      : t list * t -> t
+
+    val deConOpt: t -> (Tycon.t * t vector) option
+    val deRecord: t -> (Record.Field.t * t) vector
+    val isCharX: t -> bool
+    val isInt: t -> bool
+    val makeHom: {con: Tycon.t * 'a vector -> 'a,
+                  var: Tyvar.t -> 'a} -> {destroy: unit -> unit,
+                                          hom: t -> 'a}
+    val tuple: t vector -> t
+    val unit: t
   end
   
   structure Subst  : sig
@@ -63,7 +74,8 @@ signature TYPE_ATOM = sig
   end
 
   val unify : Type.t * Type.t -> Subst.t
-  val unifyL: Type.t list * Type.t list -> Subst.t
+  val unifyV: Type.t vector * Type.t vector -> Subst.t
+  val unifyL: Type.t list   * Type.t list   -> Subst.t
   val unifyS: Type.t list -> Subst.t
   val subst : Subst.t * Type.t -> Type.t
   val gen   : VarSet.t * Type.t -> Scheme.t

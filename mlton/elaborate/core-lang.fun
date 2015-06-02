@@ -4,41 +4,87 @@ struct
 
   structure Pat = 
   struct
-    datatype t = Var      of Var.t
+    datatype t = P of node * TyAtom.Type.t
+    and node   = Var      of Var.t
                | Const    of Const.t
-               | Con      of Con.t * t option
+               | Con      of { con  : Con.t
+                             , arg  : t option
+                             , targs: TyAtom.Type.t vector
+                             }
                | Layered  of Var.t * t
                | Wild
-
-    fun layout pat = Layout.empty
+    fun make nt        = P  nt
+    fun ty   (P (n,t)) = t
+    fun node (P (n,t)) = n
+    fun layout pat     = Layout.empty
 
     fun isWild pat = 
       case pat of
         Wild => true
       | _    => false
 
-    val truee  = Con (Con.truee,  NONE)
-    val falsee = Con (Con.falsee, NONE)
+    val truee  = P (Con { con   = Con.truee
+                        , arg   = NONE
+                        , targs = Vector.new0 ()}, 
+                    TyAtom.Type.bool)
+    val falsee = P (Con { con   = Con.falsee
+                        , arg   = NONE
+                        , targs = Vector.new0 ()},
+                    TyAtom.Type.bool)
+
+    fun subst (rho, P (n, t)) = 
+      let 
+        val substT = fn t => TyAtom.subst (rho, t)
+        val t = substT t
+        val n = case n of
+                  Con {con = con, arg = p, targs = ts} => 
+                    Con { con   = con
+                        , arg   = Option.map (p, fn p => subst (rho, p))
+                        , targs = Vector.map (ts, substT) 
+                        }
+                | Layered (v, p) =>
+                    Layered (v, subst (rho, p))
+                | x => x
+      in
+        P (n, t)
+      end
+    
+
+    structure CP = CoreML.Pat
+    fun toCoreML pat = 
+      let 
+        val typat = ty pat
+      in
+        case node pat of
+          Var   v       => CP.var (v, typat)
+        | Const c       => CP.make (CP.Const (fn () => c), typat)
+        | Con   a       => CP.make (CP.Con { con = #con a
+                                           , arg = Option.map (#arg a, toCoreML)
+                                           , targs = #targs a},
+                                    typat)
+        | Layered (v,p) => CP.make (CP.Layered (v, toCoreML p), typat)
+        | Wild          => CP.wild typat
+      end
   end
 
   datatype exp  = E of expNode * TyAtom.Type.t
   and   expNode = App  of exp * exp
                 | Case of exp * ((Pat.t * exp) vector)
-                | Constructor of Con.t
+                | Constructor of { con: Con.t, targs: TyAtom.Type.t vector }
                 | Constant    of Const.t
                 | Var         of Var.t
                 | Lambda      of lambda
                 | Let         of dec vector * exp 
-                | Seq         of exp * exp
+                | Seq         of exp vector
                 | CasePar     of exp vector * ((Pat.t vector * exp) vector)
   and    lambda = L of Var.t * TyAtom.Type.t * exp
   and    dec    = Val of { vars       : TyAtom.VarSet.t
                          , valbind    : (Pat.t * exp) vector
                          , recvalbind : (Var.t * lambda) vector
                          }
-                | Fun of { vars      : TyAtom.VarSet.t
-                         , decs      : (Var.t * lambda) vector
-                         }
+                | Fun of { vars       : TyAtom.VarSet.t
+                         , decs       : (Var.t * lambda) vector
+                         } 
 
  
   fun tyExp    (E (_,t))     = t
@@ -54,10 +100,10 @@ struct
                           Vector.map (ps, substPatExp rho))
                 | Lambda lam  =>
                     Lambda (substLam (rho ,lam))
-                | Let (ds, e)  => 
+                | Let (ds, e) => 
                     Let (ds, substExp (rho, e))
-                | Seq (e1,e2) =>
-                    Seq (substExp (rho, e1), substExp (rho, e2))
+                | Seq es      =>
+                    Seq (Vector.map (es, fn e => substExp (rho, e)))
                 | x           => x
       in
         E (e, TyAtom.subst (rho, t)) 
@@ -70,6 +116,94 @@ struct
             recvalbind = Vector.map (r, substVarLam rho) }
   and substPatExp rho (p, e) = (p, substExp (rho, e))
   and substVarLam rho (v, l) = (v, substLam (rho ,l))
+
+  structure CE = CoreML.Exp
+  structure CL = CoreML.Lambda
+  fun toCoreMLExp (E (exp, tyexp)) = 
+    case exp of
+      App (e1, e2)  => CE.make (CE.App (toCoreMLExp e1, toCoreMLExp e2), tyexp)
+    | Constructor c => CE.make (CE.Con (#con c, #targs c), tyexp)
+    | Constant c    => CE.make (CE.Const (fn ()=>c), tyexp)
+    | Var v         => CE.var (v, tyexp)
+    | Lambda l      => CE.make (CE.Lambda (toCoreMLLam l), tyexp)
+    | Let (ds, e)   => CE.make (CE.Let (Vector.map (ds, toCoreMLDec),
+                                        toCoreMLExp e),
+                                tyexp)
+    | Seq es        => CE.make (CE.Seq (Vector.map (es, toCoreMLExp)), tyexp)
+    | Case (e,cs)     => let
+                           val casebdy = 
+                             { test   = toCoreMLExp e
+                             , rules  = Vector.map (cs, fn (p,e) => 
+                                          { pat = Pat.toCoreML p
+                                          , exp = toCoreMLExp e            
+                                          , lay = ?
+                                          })                  
+                             , kind   = ?                     
+                             , lay    = ?
+                             , nest   = ?
+                             , region = ?
+                             , noMatch                 = ?
+                             , nonexhaustiveExnMatch   = ?
+                             , nonexhaustiveMatch      = ?
+                             , redundantMatch          = ?
+                             }
+                         in
+                           CE.make (CE.Case casebdy, tyexp)
+                         end
+    | CasePar (es,cs) => let
+                           val casebdy = 
+                             { test   = CE.tuple (Vector.map (es, toCoreMLExp))
+                             , rules  = Vector.map (cs, fn (ps, e) => 
+                                          { pat = Vector.map (ps, Pat.toCoreML)
+                                          , epx = toCoreMLExp e
+                                          , lay = ?
+                                          })
+                             , kind   = ?
+                             , lay    = ?
+                             , nest   = ?
+                             , region = ?
+                             , noMatch                 = ?
+                             , nonexhaustiveExnMatch   = ?
+                             , nonexhaustiveMatch      = ?
+                             , redundantMatch          = ?
+                             }
+                         in
+                           CE.make (CE.Case casebdy, tyexp)
+                         end
+  and toCoreMLDec dec = 
+    case dec of
+      Val vbind => 
+        { tyvars = TyAtom.VarSet.toV (#vars vbind)
+        , vbs    = Vector.map (#valbind vbind, 
+                     fn (pat, exp) => 
+                       { pat = Pat.toCoreML pat
+                       , exp = toCoreMLExp exp
+                       , patRegion = ?
+                       , nest      = ?
+                       , lay       = ?
+                       })
+        , rvbs   = Vector.map (#recvalbind vbind,
+                     fn (var, lam) => 
+                       { var    = var
+                       , lambda = Lambda.toCoreML lam 
+                       })
+        , nonexhaustiveMatch    = ?
+        , nonexhaustiveExnMatch = ?
+        }
+    | Fun fbind => 
+        { tyvars = TyAtom.VarSet.toV (#vars fbind)
+        , decs   = Vector.map (#decs fbind, 
+                     fn (var, lam) =>
+                       { var    = var
+                       , lambda = Lambda.toCoreML lam
+                       })
+        }
+  and toCoreMLLam (L (v, t, e)) = 
+    CL.make { arg = v
+            , argType = t
+            , body = toCoreMLExp e
+            , mayInline = ? 
+            }
 
   structure Exp = 
   struct
@@ -87,7 +221,10 @@ struct
     fun var   (c,t) = E (Var c, t)
     fun con   (c,t) = E (Constructor c, t)
     fun const (c,t) = E (Constant    c, t)
-    fun seq (e1,e2) = E (Seq (e1,e2), ty e2)
+    fun seq es      = if Vector.length es < 1 then 
+                        Error.bug "expression sequence of length 0"
+                      else
+                        E (Seq es, ty (Vector.last es))
 
     fun ifthen (e1,e2,e3) = 
       let 
@@ -141,8 +278,14 @@ struct
         E (CasePar (es, cs), ty)
       end
 
-    val truee  = E (Constructor (Con.fromBool true ), TyAtom.Type.bool)
-    val falsee = E (Constructor (Con.fromBool false), TyAtom.Type.bool)
+    val truee  = E (Constructor { con   = Con.fromBool true
+                                , targs = Vector.new0 () },
+                    TyAtom.Type.bool)
+    val falsee = E (Constructor { con   = Con.fromBool false
+                                , targs = Vector.new0 () },
+                    TyAtom.Type.bool)
+
+    val toCoreML = toCoreMLExp
   end
 
   structure Lambda = 
@@ -152,6 +295,8 @@ struct
     fun make (v, t, c) = L (v, t, c)
     val ty = tyLambda
     val subst = substLam
+
+    val toCoreML = toCoreMLLam
   end
 
   structure Dec =
@@ -161,6 +306,8 @@ struct
     val subst = substDec
     fun valbind x = Val x
     fun funbind x = Fun x
+
+    val toCoreML = toCoreMLDec
   end
 
 end
