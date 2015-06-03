@@ -274,10 +274,11 @@ struct
       let
         val len   = List.length tyvars
         val ntyps = List.duplicate (len, fn () => FlexTyvar (Tyvar.newNoname {equality = false}))
+        val ret   = List.fold2 (tyvars, ntyps, typ,
+                      fn (tyvar, ntyp, typ) =>
+                        subst (Subst.make (tyvar, ntyp), typ))
       in
-        List.fold2 (tyvars, ntyps, typ,
-          fn (tyvar, ntyp, typ) =>
-            subst (Subst.make (tyvar, ntyp), typ))
+        (ret, Vector.fromList ntyps)
       end
   end
 

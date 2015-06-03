@@ -43,21 +43,35 @@ signature CORE_LANG = sig
     type t
     type lambda
     type dec
-    datatype node = App  of t * t
-                  | Case of t * ((Pat.t * t) vector)
-                  | Constructor of {con : Con.t, targs : TyAtom.Type.t vector}
+    type caserule    = { pat: Pat.t       , exp: t, lay: Layout.t option }
+    type caseparrule = { pat: Pat.t vector, exp: t, lay: Layout.t option }
+    datatype noMatch = datatype CoreML.Exp.noMatch
+    datatype node = App         of t * t
+                  | Case        of { info : { kind   : string
+                                            , nest   : string list
+                                            , lay    : unit -> Layout.t
+                                            , region : Region.t
+                                             }
+                                   , abnm : noMatch * Control.Elaborate.DiagDI.t  *
+                                                      Control.Elaborate.DiagEIW.t *
+                                                      Control.Elaborate.DiagEIW.t
+                                   , test : t
+                                   , rules: caserule vector
+                                   }
+                  | Constructor of { con: Con.t, targs: TyAtom.Type.t vector}
                   | Constant    of Const.t
-                  | Var         of Var.t
+                  | Var         of { var: Var.t, targs: TyAtom.Type.t vector }
                   | Lambda      of lambda
                   | Let         of dec vector * t 
                   | Seq         of t vector
-                  | CasePar     of t vector * ((Pat.t vector * t) vector)
+                  | CasePar     of { test: t vector, rules: caseparrule vector }
 
     val make : node * TyAtom.Type.t -> t
     val ty   : t -> TyAtom.Type.t
     val node : t -> node
 
-    val var  : Var.t   * TyAtom.Type.t -> t
+    val var0 : Var.t * TyAtom.Type.t -> t
+    val var  : {var: Var.t, targs: TyAtom.Type.t vector} * TyAtom.Type.t -> t
     val con  : {con: Con.t, targs: TyAtom.Type.t vector} * TyAtom.Type.t -> t
     val const: Const.t * TyAtom.Type.t -> t
     val seq  : t vector -> t
@@ -65,8 +79,12 @@ signature CORE_LANG = sig
     val ifthen : t * t * t -> t
     val lambda : lambda -> t
     val app    : t * t -> t
-    val casee  : t * (Pat.t * t) vector ->  t
-    val casepar: t vector * (Pat.t vector * t) vector -> t
+    val casee  : { test : t
+                 , rules: caserule vector
+                 } ->  t
+    val casepar: { test : t vector
+                 , rules: caseparrule vector
+                 } -> t
 
     val truee  : t
     val falsee : t
@@ -93,7 +111,7 @@ signature CORE_LANG = sig
     val subst   : TyAtom.Subst.t * t -> t
 
     val valbind : { vars      : TyAtom.VarSet.t
-                  , valbind   : (Pat.t * Exp.t) vector
+                  , valbind   : (Pat.t * Region.t * Exp.t) vector
                   , recvalbind: (Var.t * Lambda.t) vector
                   } -> t
     val funbind : { vars      : TyAtom.VarSet.t

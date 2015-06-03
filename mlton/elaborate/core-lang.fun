@@ -2,6 +2,13 @@ functor CoreLang (S: CORE_LANG_STRUCTS) : CORE_LANG =
 struct
   open S
 
+  local
+    open Control.Elaborate
+  in
+    structure DiagDI  = DiagDI
+    structure DiagEIW = DiagEIW
+  end
+  
   structure Pat = 
   struct
     datatype t = P of node * TyAtom.Type.t
@@ -19,7 +26,7 @@ struct
     fun layout pat     = Layout.empty
 
     fun isWild pat = 
-      case pat of
+      case node pat of
         Wild => true
       | _    => false
 
@@ -67,36 +74,39 @@ struct
       end
   end
 
+
+  datatype noMatch = datatype CoreML.Exp.noMatch
   datatype exp  = E of expNode * TyAtom.Type.t
   and   expNode = App  of exp * exp
-                | Case of { kind : string
-                          , nest : string list
+                | Case of { info : { kind   : string
+                                   , nest   : string list
+                                   , lay    : unit -> Layout.t
+                                   , region : Region.t
+                                   }
+                          , abnm : noMatch * DiagDI.t * DiagEIW.t * DiagEIW.t
                           , test : exp
-                          , rules: { pat : Pat.t
-                                   , exp : exp
-                                   , lay : Layout.t option
-                                   } vector
+                          , rules: caserule vector
                           }
                 | Constructor of { con: Con.t, targs: TyAtom.Type.t vector }
                 | Constant    of Const.t
-                | Var         of Var.t
+                | Var         of { var: Var.t, targs: TyAtom.Type.t vector }
                 | Lambda      of lambda
                 | Let         of dec vector * exp 
                 | Seq         of exp vector
-                | CasePar     of exp vector * { pat: Pat.t vector
-                                              , exp: exp
-                                              , lay: Layout.t option
-                                              } vector
+                | CasePar     of { test : exp vector
+                                 , rules: caseparrule vector
+                                 }
   and    lambda = L of Var.t * TyAtom.Type.t * exp
   and    dec    = Val of { vars       : TyAtom.VarSet.t
-                         , valbind    : (Pat.t * exp) vector
+                         , valbind    : (Pat.t * Region.t * exp) vector
                          , recvalbind : (Var.t * lambda) vector
                          }
                 | Fun of { vars       : TyAtom.VarSet.t
                          , decs       : (Var.t * lambda) vector
                          } 
+  withtype caserule    = { pat: Pat.t       , exp: exp, lay: Layout.t option }
+  and      caseparrule = { pat: Pat.t vector, exp: exp, lay: Layout.t option }
 
- 
   fun tyExp    (E (_,t))     = t
   fun tyLambda (L (_, t, e)) = (t, tyExp e)
 
@@ -106,14 +116,22 @@ struct
         val e = case e of 
                   App (e1,e2) =>
                     App  (substExp (rho, e1), substExp (rho, e2))
-                | Case { test = e, rules = rs, kind = k, nest = n } => 
+                | Case   { test = e, rules = rs, info = i, abnm = a } => 
                     Case { test = substExp (rho, e)
                          , rules= Vector.map (rs, fn c => 
                                     { pat = substPat (rho, #pat c)
                                     , exp = substExp (rho, #exp c)
                                     , lay = #lay c})
-                         , kind = k
-                         , nest = n}
+                         , info = i
+                         , abnm = a
+                         }
+                | CasePar   {test = e, rules = rs} => 
+                    CasePar { test = Vector.map (e, fn e => substExp (rho, e))
+                            , rules= Vector.map (rs, fn c => 
+                                       { pat = Vector.map (#pat c, fn p => substPat (rho, p))
+                                       , exp = substExp (rho, #exp c)
+                                       , lay = #lay c})
+                            }
                 | Lambda lam  =>
                     Lambda (substLam (rho ,lam))
                 | Let (ds, e) => 
@@ -128,9 +146,14 @@ struct
       L (v, TyAtom.subst (rho, t), substExp (rho, e)) 
   and substDec (rho, Val {vars = v, valbind = b, recvalbind = r}) =
       Val { vars       = v, 
-            valbind    = Vector.map (b, substPatExp rho),
+            valbind    = Vector.map (b, fn (pat, region, exp) => 
+                           let 
+                             val pat = substPat (rho, pat)
+                             val exp = substExp (rho, exp)
+                           in
+                             (pat, region, exp)
+                           end),
             recvalbind = Vector.map (r, substVarLam rho) }
-  and substPatExp rho (p, e) = (substPat (rho, p), substExp (rho, e))
   and substVarLam rho (v, l) = (v, substLam (rho ,l))
 
   structure CP = CoreML.Pat
@@ -142,13 +165,13 @@ struct
       App (e1, e2)  => CE.make (CE.App (toCoreMLExp e1, toCoreMLExp e2), tyexp)
     | Constructor c => CE.make (CE.Con (#con c, #targs c), tyexp)
     | Constant c    => CE.make (CE.Const (fn ()=>c), tyexp)
-    | Var v         => CE.var (v, tyexp)
+    | Var v         => CE.make (CE.Var (fn () => #var v, fn () => #targs v), tyexp)
     | Lambda l      => CE.make (CE.Lambda (toCoreMLLam l), tyexp)
     | Let (ds, e)   => CE.make (CE.Let (Vector.map (ds, toCoreMLDec),
                                         toCoreMLExp e),
                                 tyexp)
     | Seq es        => CE.make (CE.Seq (Vector.map (es, toCoreMLExp)), tyexp)
-    | Case {test = e, rules = cs, kind = k, nest = n}
+    | Case {test = e, rules = cs, info = i, abnm = a}
                     => let
                          val casebdy = 
                            { test   = toCoreMLExp e
@@ -157,59 +180,60 @@ struct
                                         , exp = toCoreMLExp  (#exp c)    
                                         , lay = Option.map (#lay c,
                                                   fn x => fn () => x)
-                                        })                  
-                           , kind   = k
-                           , nest   = n
-                           , lay    = ?
-                           , region = ?
-                           , noMatch                 = ?
-                           , nonexhaustiveExnMatch   = ?
-                           , nonexhaustiveMatch      = ?
-                           , redundantMatch          = ?
+                                        })                 
+                           , kind   = #kind   i
+                           , nest   = #nest   i
+                           , lay    = #lay    i
+                           , region = #region i
+                           , noMatch                 = #1 a
+                           , nonexhaustiveExnMatch   = #2 a
+                           , nonexhaustiveMatch      = #3 a
+                           , redundantMatch          = #4 a
                            }
                        in
                          CE.make (CE.Case casebdy, tyexp)
                        end
-    | CasePar (es,cs) => let
-                           val casebdy = 
-                             { test   = CE.tuple (Vector.map (es, toCoreMLExp))
-                             , rules  = Vector.map (cs, fn c => 
-                                          { pat = CP.tuple (Vector.map (#pat c, Pat.toCoreML))
-                                          , exp = toCoreMLExp (#exp c)
-                                          , lay = Option.map (#lay c, 
-                                                    fn x => fn () => x)
-                                          })
-                             , kind   = "function"
-                             , lay    = ?
-                             , nest   = ?
-                             , region = ?
-                             , noMatch                 = ?
-                             , nonexhaustiveExnMatch   = ?
-                             , nonexhaustiveMatch      = ?
-                             , redundantMatch          = ?
-                             }
-                         in
-                           CE.make (CE.Case casebdy, tyexp)
-                         end
+    | CasePar {test = es, rules = cs}
+                    => let
+                         val casebdy = 
+                           { test   = CE.tuple (Vector.map (es, toCoreMLExp))
+                           , rules  = Vector.map (cs, fn c => 
+                                        { pat = CP.tuple (Vector.map (#pat c, Pat.toCoreML))
+                                        , exp = toCoreMLExp (#exp c)
+                                        , lay = Option.map (#lay c, 
+                                                  fn x => fn () => x)
+                                        })
+                           , kind   = "function"
+                           , lay    = fn () => Layout.empty
+                           , nest   = []
+                           , region = Region.bogus
+                           , noMatch                 = RaiseMatch
+                           , nonexhaustiveExnMatch   = DiagDI.Default
+                           , nonexhaustiveMatch      = DiagEIW.Ignore  
+                           , redundantMatch          = DiagEIW.Ignore  
+                           }
+                       in
+                         CE.make (CE.Case casebdy, tyexp)
+                       end
   and toCoreMLDec dec = 
     case dec of
       Val vbind => 
         CD.Val { tyvars = fn () => TyAtom.VarSet.toV (#vars vbind)
                , vbs    = Vector.map (#valbind vbind, 
-                            fn (pat, exp) => 
+                            fn (pat, region, exp) => 
                               { pat = Pat.toCoreML pat
                               , exp = toCoreMLExp exp
-                              , patRegion = ?
-                              , nest      = ?
-                              , lay       = ?
+                              , patRegion = region
+                              , nest      = []
+                              , lay       = fn () => Layout.str "dec val binding"
                               })
                , rvbs   = Vector.map (#recvalbind vbind,
                             fn (var, lam) => 
                               { var    = var
                               , lambda = toCoreMLLam lam 
                               })
-               , nonexhaustiveMatch    = ?
-               , nonexhaustiveExnMatch = ?
+               , nonexhaustiveExnMatch = DiagDI.Default
+               , nonexhaustiveMatch    = DiagEIW.Ignore
                }
     | Fun fbind => 
         CD.Fun { tyvars = fn () => TyAtom.VarSet.toV (#vars fbind)
@@ -223,7 +247,7 @@ struct
     CL.make { arg = v
             , argType = t
             , body = toCoreMLExp e
-            , mayInline = ? 
+            , mayInline = true
             }
 
   structure Exp = 
@@ -232,7 +256,11 @@ struct
     type lambda = lambda
     type dec    = dec
     datatype node = datatype expNode
-    
+
+    type caserule    = { pat: Pat.t       , exp: exp, lay: Layout.t option }
+    type caseparrule = { pat: Pat.t vector, exp: exp, lay: Layout.t option }    
+    datatype noMatch = datatype CoreML.Exp.noMatch
+
     fun make ndty     = E  ndty
     val ty            = tyExp
     fun node (E ndty) = #1 ndty
@@ -242,6 +270,7 @@ struct
     fun var   (c,t) = E (Var c, t)
     fun con   (c,t) = E (Constructor c, t)
     fun const (c,t) = E (Constant    c, t)
+    fun var0  (v,t) = var ({var = v, targs = Vector.new0 ()}, t)
     fun seq es      = if Vector.length es < 1 then 
                         Error.bug "expression sequence of length 0"
                       else
@@ -249,8 +278,15 @@ struct
 
     fun ifthen (e1,e2,e3) = 
       let 
-        val n = Case { kind  = "if"
-                     , nest  = []
+        val n = Case { info = { kind = "if"
+                              , nest = []
+                              , lay  = fn () => Layout.empty
+                              , region = Region.bogus
+                              }
+                     , abnm = ( Impossible
+                              , DiagDI.Default
+                              , DiagEIW.Ignore
+                              , DiagEIW.Ignore )
                      , test  = e1 
                      , rules = Vector.new2 
                                 ({ pat = Pat.truee , exp = e2, lay = NONE},
@@ -282,24 +318,30 @@ struct
 
 
     exception CompilerBugEmptyCaseClause
-    fun casee (e, cs) = 
+    fun casee { test = e, rules = cs } = 
       let
         val ty = if Vector.length cs = 0 then
                    raise CompilerBugEmptyCaseClause
                  else
-                   (ty o #2 o Vector.sub) (cs, 0)
+                   (ty o #exp o Vector.last) cs
+        val info = { kind = "case"
+                   , nest = []
+                   , lay  = fn () => Layout.empty
+                   , region = Region.bogus
+                   }
+        val abnm = (RaiseMatch, DiagDI.Default, DiagEIW.Ignore, DiagEIW.Ignore)
       in
-        E (Case (e, cs), ty)
+        E (Case {test = e, rules = cs, info = info, abnm = abnm}, ty)
       end
 
-    fun casepar (es, cs) = 
+    fun casepar { test = es, rules = cs } = 
       let
         val ty = if Vector.length cs = 0 then
                    raise CompilerBugEmptyCaseClause
                  else
-                   (ty o #2 o Vector.sub) (cs, 0)
+                   (ty o #exp o Vector.last) cs
       in
-        E (CasePar (es, cs), ty)
+        E (CasePar {test = es, rules = cs}, ty)
       end
 
     val truee  = E (Constructor { con   = Con.fromBool true

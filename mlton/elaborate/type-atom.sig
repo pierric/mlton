@@ -79,6 +79,6 @@ signature TYPE_ATOM = sig
   val unifyS: Type.t list -> Subst.t
   val subst : Subst.t * Type.t -> Type.t
   val gen   : VarSet.t * Type.t -> Scheme.t
-  val inst  : Scheme.t -> Type.t
+  val inst  : Scheme.t -> Type.t * Type.t vector
 
 end
