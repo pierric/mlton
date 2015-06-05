@@ -318,13 +318,13 @@ struct
 
 
     exception CompilerBugEmptyCaseClause
-    fun casee { test = e, rules = cs } = 
+    fun casee { test = e, rules = cs, kind = k } = 
       let
         val ty = if Vector.length cs = 0 then
                    raise CompilerBugEmptyCaseClause
                  else
                    (ty o #exp o Vector.last) cs
-        val info = { kind = "case"
+        val info = { kind = k
                    , nest = []
                    , lay  = fn () => Layout.empty
                    , region = Region.bogus

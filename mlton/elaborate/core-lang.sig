@@ -81,6 +81,7 @@ signature CORE_LANG = sig
     val app    : t * t -> t
     val casee  : { test : t
                  , rules: caserule vector
+                 , kind : string
                  } ->  t
     val casepar: { test : t vector
                  , rules: caseparrule vector

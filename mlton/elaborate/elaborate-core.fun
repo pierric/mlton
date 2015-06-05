@@ -99,29 +99,28 @@ struct
             val optarr = TyAtom.Type.deArrow contyp
             val _      = if Option.isNone optarr then
                            error (Ast.Longcon.region longcon,
-                             Layout.str "",
+                             Layout.str "Nullary constructor applied with arg",
                              Layout.empty)
                          else
                            ()
             val (contyp1, contyp2) = Option.valOf optarr
             val (argcpat, argenv') = elaboratePat (env, pat)
-            val argtyp             = Cpat.ty argcpat
-            val rho                = TyAtom.unify (contyp1, argtyp)
+            val rho                = TyAtom.unify (contyp1, Cpat.ty argcpat)
+            val cpat = Cpat.make ( Cpat.Con { con   = (Env.ValDef.deCon o Env.ValDef.value) valdef
+                                            , arg   = SOME argcpat
+                                            , targs = targs
+                                            },
+                                   contyp2 )
           in
-            ( Cpat.make ( Cpat.Con { con   = (Env.ValDef.deCon o Env.ValDef.value) valdef
-                                   , arg   = SOME argcpat
-                                   , targs = targs
-                                   },
-                          TyAtom.subst (rho, contyp2) ),
-              Env.subst (rho, argenv') )
+            ( Cpat.subst (rho, cpat)
+            , Env.subst (rho, argenv') )
           end
       | Apat.Var {name=longvid, ...}  => 
           let
             val optvd = Env.lookupVid (env, longvid)
             open Env.ValDef
           in
-            if Option.isSome optvd andalso 
-               (isCon o value) (Option.valOf optvd) then
+            if Option.exists (optvd, isCon o value) then
               let 
                 val valdef   = Option.valOf optvd
                 val VCON con = value valdef
@@ -159,18 +158,18 @@ struct
             val typ2         = ElabTy.elaborateT (env, typ)
             val rho          = TyAtom.unify (typ1, typ2)
           in
-            ( Cpat.make (Cpat.node cpat, TyAtom.subst (rho, typ1)), Env.subst (rho, env') )
+            (Cpat.subst (rho, cpat) , Env.subst (rho, env') )
           end
       | Apat.Layered {var=var, pat=pat, constraint=typ,...} =>
           let 
             val (cpat, env')   = elaboratePat (env, pat)
             val typ1           = Cpat.ty cpat
-            val cvar           = Core.Var.newNoname () 
+            val cvar           = Core.Var.newNoname ()
             fun bindvar vartyp = let 
-                                   open Env.ValDef
+                                   open Env
                                    val s = TyAtom.Scheme.fromType vartyp
                                  in
-                                   Env.extendVid (Ast.Vid.fromVar var, make (VVAR cvar, s))
+                                   extendVid (Ast.Vid.fromVar var, ValDef.make (ValDef.VVAR cvar, s))
                                  end
           in
             case typ of 
@@ -180,9 +179,8 @@ struct
                 let 
                   val typ2 = ElabTy.elaborateT (env, typ)
                   val rho  = TyAtom.unify (typ1, typ2)
-                  val ctyp = TyAtom.subst (rho, typ1)
                 in
-                  ( Cpat.make (Cpat.node cpat, ctyp), bindvar ctyp (Env.subst (rho, env')) )
+                  ( Cpat.subst (rho, cpat), Env.subst  (rho, bindvar typ1 env') )
                 end
           end
       | Apat.Tuple pats =>
@@ -215,6 +213,7 @@ struct
              Layout.str "record of pattern is not supported",
              Layout.empty);
            raise UnsupportedPatternSyntax)
+
     and elaborateExp (env, aexp) = 
       case Aexp.node aexp of
         Aexp.Var {name=longvid,...} =>
@@ -227,11 +226,11 @@ struct
                      else
                        ()
             val vd = Option.valOf vd
-            open Env.ValDef
-            val (ty, targs) = TyAtom.inst (scheme vd)
-            val cexp = case value vd of
-                         VVAR cvar => Cexp.var ({var = cvar, targs = targs}, ty) 
-                       | VCON ccon => Cexp.con ({con = ccon, targs = targs}, ty)
+            open Env
+            val (ty, targs) = TyAtom.inst (ValDef.scheme vd)
+            val cexp = case ValDef.value vd of
+                         ValDef.VVAR cvar => Cexp.var ({var = cvar, targs = targs}, ty) 
+                       | ValDef.VCON ccon => Cexp.con ({con = ccon, targs = targs}, ty)
           in 
             (cexp, TyAtom.Subst.empty)
           end
@@ -255,15 +254,16 @@ struct
       | Aexp.If (aexp0, aexp1, aexp2) =>
           let
             val (cexp0,rho0) = elaborateExp (env, aexp0)
-            val env = Env.subst (rho0, env)
+            val env   = Env.subst (rho0, env)
             val (cexp1,rho1) = elaborateExp (env, aexp1)
-            val env = Env.subst (rho1, env)
+            val env   = Env.subst (rho1, env)
+            val cexp0 = Cexp.subst (rho1, cexp0)
             val (cexp2,rho2) = elaborateExp (env, aexp2)
-            val cexp0 = Cexp.subst (rho2, Cexp.subst (rho1, cexp0))
+            val cexp0 = Cexp.subst (rho2, cexp0)
             val cexp1 = Cexp.subst (rho2, cexp1)
-            val rho3 = TyAtom.unifyL ([Cexp.ty cexp0   , Cexp.ty cexp1],
-                                      [TyAtom.Type.bool, Cexp.ty cexp2])
-            val rho4 = TyAtom.Subst.composeL [rho3,rho2,rho1,rho0]
+            val rho3  = TyAtom.unifyL ([Cexp.ty cexp0   , Cexp.ty cexp1],
+                                       [TyAtom.Type.bool, Cexp.ty cexp2])
+            val rho4  = TyAtom.Subst.composeL [rho3,rho2,rho1,rho0]
             val cexp0 = Cexp.subst (rho3, cexp0)
             val cexp1 = Cexp.subst (rho3, cexp1)
             val cexp2 = Cexp.subst (rho3, cexp2)
@@ -292,9 +292,10 @@ struct
       | Aexp.Case (aexp, match) =>
           let
             val (cexp, rho0) = elaborateExp (env, aexp)
-            val (clam, rho1) = elaborateLam (Env.subst (rho0, env), match)
+            val env          = Env.subst (rho0, env)
+            val (clam, rho1) = elaborateLam (env, match, "case")
             val cexp         = Cexp.subst (rho1, cexp)
-            val (ty0,ty1)    = Clam.ty clam
+            val (ty0,_)      = Clam.ty clam
             val rho2         = TyAtom.unify (Cexp.ty cexp, ty0)
             val cexp         = Cexp.subst (rho2, cexp)
             val clam         = Clam.subst (rho2, clam)
@@ -304,7 +305,7 @@ struct
           end
       | Aexp.Fn match =>
           let
-            val (clam, rho) = elaborateLam (env, match)
+            val (clam, rho) = elaborateLam (env, match, "fn")
           in
             (Cexp.lambda clam, rho)
           end
@@ -313,9 +314,10 @@ struct
       | Aexp.Andalso (aexp1, aexp2) =>
           let
             val (cexp0, rho0) = elaborateExp (env, aexp1)
-            val (cexp1, rho1) = elaborateExp (Env.subst (rho0, env), aexp2)
+            val env           = Env.subst (rho0, env)
+            val (cexp1, rho1) = elaborateExp (env, aexp2)
             val cexp0         = Cexp.subst (rho1, cexp0)
-            val rho2 = TyAtom.unifyS [Cexp.ty cexp0, Cexp.ty cexp1, TyAtom.Type.bool]
+            val rho2  = TyAtom.unifyS [Cexp.ty cexp0, Cexp.ty cexp1, TyAtom.Type.bool]
             val cexp0 = Cexp.subst (rho2, cexp0)
             val cexp1 = Cexp.subst (rho2, cexp1)
             val rho   = TyAtom.Subst.composeL [rho2, rho1, rho0]
@@ -325,9 +327,10 @@ struct
       | Aexp.Orelse  (aexp1, aexp2) =>
           let
             val (cexp0, rho0) = elaborateExp (env, aexp1)
-            val (cexp1, rho1) = elaborateExp (Env.subst (rho0, env), aexp2)
+            val env           = Env.subst (rho0, env)
+            val (cexp1, rho1) = elaborateExp (env, aexp2)
             val cexp0         = Cexp.subst (rho1, cexp0)
-            val rho2 = TyAtom.unifyS [Cexp.ty cexp0, Cexp.ty cexp1, TyAtom.Type.bool]
+            val rho2  = TyAtom.unifyS [Cexp.ty cexp0, Cexp.ty cexp1, TyAtom.Type.bool]
             val cexp0 = Cexp.subst (rho2, cexp0)
             val cexp1 = Cexp.subst (rho2, cexp1)
             val rho   = TyAtom.Subst.composeL [rho2, rho1, rho0]
@@ -336,13 +339,13 @@ struct
           end
       | _ => raise UnsupportedExpressionSyntax
 
-    and elaborateLam (env : Env.t, match : Alam.t) = 
+    and elaborateLam (env : Env.t, match : Alam.t, kind : string) = 
       let 
-        val patexps      = case Alam.node match of Alam.T x => x
-        val cpattypeenvs = Vector.map (patexps, 
-                             fn (apat, _) => elaboratePat (env, apat))
-        val rho   = ref (TyAtom.unifyS (Vector.toListMap (cpattypeenvs, Cpat.ty o #1)))
-        val cexps = Vector.map2 (cpattypeenvs, patexps, 
+        val patexps  = case Alam.node match of Alam.T x => x
+        val cpatenvs = Vector.map (patexps, 
+                         fn (apat, _) => elaboratePat (env, apat))
+        val rho   = ref (TyAtom.unifyS (Vector.toListMap (cpatenvs, Cpat.ty o #1)))
+        val cexps = Vector.map2 (cpatenvs, patexps, 
                       fn ((_, envadd), (_, aexp)) => 
                         let 
                           val env = Env.subst (!rho, Env.append (env, envadd))
@@ -353,18 +356,18 @@ struct
                         end)
         val rho'  = TyAtom.unifyS (Vector.toListMap
                       (cexps, (fn t => TyAtom.subst (!rho, t)) o  Cexp.ty))
-        val rho'  = TyAtom.Subst.compose (rho', !rho)       
-        val cexps = Vector.map (cexps, fn e => Cexp.subst (rho', e))
-        val ty1   = TyAtom.subst (rho', (Cpat.ty o #1 o Vector.sub) (cpattypeenvs, 0))
+        val rho'  = TyAtom.Subst.compose (rho', !rho)
+        val cpats = Vector.map (cpatenvs, fn p => Cpat.subst (rho', #1 p))
+        val cexps = Vector.map (cexps,    fn e => Cexp.subst (rho', e))
         val cvar  = Core.Var.newNoname ()
-        val cpatcexps = Vector.map2 (cpattypeenvs, cexps,
-                          fn ((cpat, _), cexp) => 
-                            { pat = cpat 
-                            , exp = cexp
-                            , lay = NONE
-                            })
+        val cpatcexps = Vector.map2 (cpats, cexps,
+                          fn (cpat, cexp) => { pat = cpat 
+                                             , exp = cexp
+                                             , lay = NONE
+                                             })
+        val ty1   = (Cpat.ty o Vector.sub) (cpats, 0)
         val clam  = Clam.make (cvar, ty1, 
-                      Cexp.casee { test = Cexp.var0 (cvar, ty1), rules = cpatcexps})
+                      Cexp.casee { test = Cexp.var0 (cvar, ty1), rules = cpatcexps, kind = kind})
       in 
         (clam, rho')
       end
@@ -456,7 +459,8 @@ struct
                 val (clam, rho) = elaborateLam 
                                     (Env.extendRgdFV vars 
                                       (Env.append (env, en)),
-                                     lam)
+                                     lam,
+                                     "function")
                 val ty1  = TyAtom.subst (rho, ty1)
                 val rho' = TyAtom.unify (ty1, TyAtom.Type.arrow (Clam.ty clam))
                 val ty1  = TyAtom.subst (rho', ty1)
