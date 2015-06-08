@@ -28,7 +28,7 @@ struct
               end
           | SOME typdef =>
               let 
-                val typs = Vector.toListMap (atyps, fn atyp =>
+                val typs = Vector.map (atyps, fn atyp =>
                              elaborateT (env, atyp))
               in
                 TypFun.apply (Env.TypDef.typfun typdef, typs)

@@ -2,16 +2,22 @@ signature ELABORATE_ENV_STRUCTS = sig
   include ATOMS
   structure Ast : AST
   structure TyAtom : TYPE_ATOM
+  sharing TyAtom.Atoms = Atoms
 end
 
 signature ELABORATE_ENV = sig 
   include ELABORATE_ENV_STRUCTS
 
+  structure Basis : sig
+    type t
+  end
+
   structure TypDef : sig
     type t
-    val arity  : t -> int
+    val arity  : t -> TyAtom.TypFun.arity
     val typfun : t -> TyAtom.TypFun.t
     val cons   : t -> Ast.Longvid.t list
+    val make   : { typfun: TyAtom.TypFun.t, cons  : Ast.Longvid.t list } -> t
   end
 
   structure ValDef : sig
@@ -45,4 +51,9 @@ signature ELABORATE_ENV = sig
   val extendVid   : Ast.Vid.t   * ValDef.t -> t -> t
   (* extend rigid free variables *)
   val extendRgdFV : TyAtom.VarSet.t -> t -> t
+
+  val makeBasis : t * (t -> 'a) * ('a -> t) -> 'a * Basis.t
+  val openBasis : t * Basis.t -> t
+
+  val layoutCurrentScope : t -> Layout.t
 end

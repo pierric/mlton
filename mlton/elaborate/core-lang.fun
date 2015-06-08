@@ -8,6 +8,10 @@ struct
     structure DiagDI  = DiagDI
     structure DiagEIW = DiagEIW
   end
+
+  structure Var   = CoreML.Var
+  structure Con   = CoreML.Con
+  structure Const = CoreML.Const
   
   structure Pat = 
   struct
@@ -154,6 +158,11 @@ struct
                              (pat, region, exp)
                            end),
             recvalbind = Vector.map (r, substVarLam rho) }
+    | substDec (rho, Fun {vars = v, decs = d}) =
+      Fun { vars = v
+          , decs = Vector.map (d, substVarLam rho)
+          }
+
   and substVarLam rho (v, l) = (v, substLam (rho ,l))
 
   structure CP = CoreML.Pat
@@ -374,6 +383,7 @@ struct
     fun funbind x = Fun x
 
     val toCoreML = toCoreMLDec
+    val layout   = CoreML.Dec.layout o toCoreML
   end
 
 end

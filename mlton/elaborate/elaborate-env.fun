@@ -5,10 +5,11 @@ struct
   structure TypEnv = Env (structure Domain = Ast.Tycon)
   structure TypDef = 
   struct
-    type t = int * TyAtom.TypFun.t * Ast.Longvid.t list 
-    fun arity  (td : t) = #1 td
-    fun typfun (td : t) = #2 td
-    fun cons   (td : t) = #3 td
+    type t = { typfun: TyAtom.TypFun.t, cons  : Ast.Longvid.t list }
+    fun arity  (td : t) = TyAtom.TypFun.arity (#typfun  td)
+    fun typfun (td : t) = #typfun td
+    fun cons   (td : t) = #cons   td
+    fun make x = x
   end
   type typenv = TypDef.t TypEnv.t
 
@@ -30,7 +31,13 @@ struct
   end
   type valenv = ValDef.t ValEnv.t
   
-  type t = {typenv: typenv, valenv: valenv, freergdvar: TyAtom.VarSet.t}
+  type env = {typenv: typenv, valenv: valenv, freergdvar: TyAtom.VarSet.t}
+  type t = env
+
+  structure Basis =
+  struct
+    type t = env
+  end
 
   val empty = { typenv = TypEnv.empty (),
                 valenv = ValEnv.empty (),
@@ -158,4 +165,16 @@ struct
        valenv = ve,
        freergdvar = TyAtom.VarSet.append (vs, nvs)}
     end
+
+  fun makeBasis (env, make, getenv)  = 
+    let 
+      val x = make env
+      val e = getenv x
+    in
+      (x, e)
+    end
+
+  fun openBasis (env, basis) = append (env, basis)
+
+  fun layoutCurrentScope env = Layout.empty
 end

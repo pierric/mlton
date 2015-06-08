@@ -49,7 +49,7 @@ struct
       | Cons (_, typs) => VarSet.unions (Vector.toListMap (typs, free))
 
     fun newNoname () = FlexTyvar (Tyvar.newNoname {equality = false})
-
+    fun var v = FlexTyvar v
     fun equals (t1, t2) = 
       case (t1, t2) of
         (FlexTyvar v1, FlexTyvar v2) =>Tyvar.equals (v1, v2)
@@ -61,7 +61,10 @@ struct
             false
       | _  => false
 
-    val bool = Cons (Tycon.bool, Vector.new0 ())
+    val bool   = Cons (Tycon.bool,   Vector.new0 ())
+    val intInf = Cons (Tycon.intInf, Vector.new0 ())
+
+    fun con x = Cons x
 
     fun arrow (t1,t2) = Cons (Tycon.arrow, Vector.new2 (t1,t2))
     
@@ -302,19 +305,50 @@ struct
     end
   end
 
-  structure TypFun = struct
-    datatype t = TypFun of tyvar list * typ 
-    fun apply (TypFun (parms, body), args) = 
-      let
-        val _    = if List.length parms <> List.length args then
-                     Error.bug "TyFun: arity does not match"
-                   else
-                     ()
+  structure TypFun = 
+  struct
+  
+    datatype arity = Arity of int | NaryCon
+    datatype t = TypCon of tycon * TyconKind.t
+               | TypFun of tyvar vector * typ 
+    fun apply (typfun, args) = 
+      let 
+        val n = Vector.length args
       in
-        List.fold2 (parms, args, body, 
-          fn (tyvar, typ, body) =>
-            subst (Subst.make (tyvar, typ), body))
+        case typfun of
+          TypFun (parms, body) => 
+            let
+              val _ = if Vector.length parms <> n then
+                        Error.bug "TyFun: arity does not match"
+                      else
+                        ()
+            in
+              Vector.fold2 (parms, args, body, 
+                fn (tyvar, typ, body) =>
+                  subst (Subst.make (tyvar, typ), body))
+            end
+        | TypCon (con, kind) =>
+          let 
+            val _ = case kind of 
+                      TyconKind.Arity n' =>
+                        if n <> n' then
+                          Error.bug "TyFun: arity does not match"
+                        else
+                          ()
+                    | _ => ()
+          in
+            Type.Cons (con, args)
+          end
       end
+
+    fun arity (TypCon (_, TyconKind.Arity n)) = Arity n
+      | arity (TypCon (_, TyconKind.Nary   )) = NaryCon
+      | arity (TypFun (parms, _))             = Arity (Vector.length parms)
+
+    fun fromTycon (tycon, kind) = 
+        TypCon (tycon, kind)
+
+    fun fromType t = TypFun (Vector.new0 (), t)
   end
 
 end

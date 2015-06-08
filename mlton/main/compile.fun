@@ -28,23 +28,9 @@ in
    structure WordX = WordX
 end
 structure Ast = Ast (open Atoms)
-structure TypeEnv = TypeEnv (open Atoms)
+structure TyAtom = TypeAtom (open Atoms)
 structure CoreML = CoreML (open Atoms
-                           structure Type =
-                              struct
-                                 open TypeEnv.Type
-
-                                 val makeHom =
-                                    fn {con, var} =>
-                                    makeHom {con = con,
-                                             expandOpaque = true,
-                                             var = var}
-
-                                 fun layout t = 
-                                    layoutPrettyAux 
-                                    (t, {expandOpaque = true,
-                                         localTyvarNames = false})
-                              end)
+                           structure Type = TyAtom.Type)
 structure Xml = Xml (open Atoms)
 structure Sxml = Sxml (open Xml)
 structure Ssa = Ssa (open Atoms)
@@ -69,7 +55,7 @@ structure Defunctorize = Defunctorize (structure CoreML = CoreML
                                        structure Xml = Xml)
 structure Elaborate = Elaborate (structure Ast = Ast
                                  structure CoreML = CoreML
-                                 structure TypeEnv = TypeEnv)
+                                 structure TyAtom = TyAtom)
 local
    open Elaborate
 in
@@ -159,37 +145,17 @@ val lookupConstant =
 (* ------------------------------------------------- *)
 
 local
-   structure Con = TypeEnv.Con
-   structure Tycon = TypeEnv.Tycon
-   structure Type = TypeEnv.Type
-   structure Tyvar = TypeEnv.Tyvar
+   structure Con   = TyAtom.Con
+   structure Tycon = TyAtom.Tycon
+   structure Type  = TyAtom.Type
+   structure Tyvar = TyAtom.Tyvar
 
    val primitiveDatatypes =
-      Vector.new3
-      ({tycon = Tycon.bool,
-        tyvars = Vector.new0 (),
-        cons = Vector.new2 ({con = Con.falsee, arg = NONE},
-                            {con = Con.truee, arg = NONE})},
-       let
-          val a = Tyvar.newNoname {equality = false}
-       in
-          {tycon = Tycon.list,
-           tyvars = Vector.new1 a,
-           cons = Vector.new2 ({con = Con.nill, arg = NONE},
-                               {con = Con.cons,
-                                arg = SOME (Type.tuple
-                                            (Vector.new2
-                                             (Type.var a,
-                                              Type.list (Type.var a))))})}
-       end,
-       let
-          val a = Tyvar.newNoname {equality = false}
-       in
-          {tycon = Tycon.reff,
-           tyvars = Vector.new1 a,
-           cons = Vector.new1 {con = Con.reff, arg = SOME (Type.var a)}}
-       end)
-
+      Vector.new1
+        {tycon = Tycon.bool,
+         tyvars = Vector.new0 (),
+         cons = Vector.new2 ({con = Con.falsee, arg = NONE},
+                             {con = Con.truee, arg = NONE})}
    val primitiveExcons =
       let
          open CoreML.Con
@@ -197,19 +163,18 @@ local
          [bind, match, overflow]
       end
 
-   structure Con =
-      struct
-         open Con
-
-         fun toAst c =
-            Ast.Con.fromSymbol (Symbol.fromString (Con.toString c),
-                                Region.bogus)
-      end
-
    structure Env =
       struct
          open Env 
 
+         structure Con =
+         struct
+            open Con
+   
+            fun toAstVid c =
+               Ast.Vid.fromSymbol (Symbol.fromString (Con.toString c), Region.bogus)
+            val toAstLongvid = Ast.Longvid.short o toAstVid
+         end
          structure Tycon =
             struct
                open Tycon
@@ -218,59 +183,43 @@ local
                   Ast.Tycon.fromSymbol (Symbol.fromString (Tycon.toString c),
                                         Region.bogus)
             end
-         structure Type = TypeEnv.Type
-         structure Scheme = TypeEnv.Scheme
+         structure Type   = TyAtom.Type
+         structure Scheme = TyAtom.Scheme
 
-         fun addPrim (E: t): unit =
+         fun addPrim (env: t): t =
             let
-               val _ =
-                  List.foreach
-                  (Tycon.prims, fn {kind, name, tycon, ...} =>
-                   extendTycon
-                   (E, Ast.Tycon.fromSymbol (Symbol.fromString name,
-                                             Region.bogus),
-                    TypeStr.tycon (tycon, kind),
-                    {forceUsed = false, isRebind = false}))
-               val _ =
-                  Vector.foreach
-                  (primitiveDatatypes, fn {tyvars, tycon, cons} =>
-                   let
-                      val cons =
-                         Env.newCons
-                         (E, Vector.map (cons, fn {con, ...} =>
-                                         {con = con, name = Con.toAst con}))
-                         (Vector.map
-                          (cons, fn {arg, ...} =>
-                           let
-                              val resultType =
-                                 Type.con (tycon, Vector.map (tyvars, Type.var))
-                           in
-                              Scheme.make
-                              {canGeneralize = true,
-                               ty = (case arg of
-                                        NONE => resultType
-                                      | SOME t => Type.arrow (t, resultType)),
-                               tyvars = tyvars}
-                           end))
-                   in
-                      extendTycon
-                      (E, Tycon.toAst tycon,
-                       TypeStr.data (tycon,
-                                     TypeStr.Kind.Arity (Vector.length tyvars),
-                                     cons),
-                       {forceUsed = false, isRebind = false})
-                   end)
-               val _ =
-                  extendTycon (E,
-                               Ast.Tycon.fromSymbol (Symbol.unit, Region.bogus),
-                               TypeStr.def (Scheme.fromType Type.unit,
-                                            TypeStr.Kind.Arity 0),
-                               {forceUsed = false, isRebind = false})
-               val scheme = Scheme.fromType Type.exn
-               val _ = List.foreach (primitiveExcons, fn c =>
-                                     extendExn (E, Con.toAst c, c, SOME scheme))
+               val env =
+                  List.fold (Tycon.prims, env, 
+                    fn ({kind, name, tycon, ...}, env) =>
+                      extendTycon (Ast.Tycon.fromSymbol (Symbol.fromString name, Region.bogus),
+                                   Env.TypDef.make {typfun = TyAtom.TypFun.fromTycon (tycon, kind), cons = []}) 
+                                  env)
+               val env =
+                  Vector.fold (primitiveDatatypes, env, 
+                    fn ({tyvars, tycon, cons}, env) =>
+                      let
+                        val acons = Vector.toListMap (cons, fn con => Con.toAstLongvid (#con con))
+                        val kind  = TyconKind.Arity (Vector.length tyvars)
+                        val typfun= TyAtom.TypFun.fromTycon (tycon, kind)
+                        val env   = extendTycon (Tycon.toAst tycon, Env.TypDef.make {typfun = typfun, cons = acons}) env
+                        val env   = Vector.fold (cons, env, fn ({con=con,arg=arg}, env) =>
+                                      let 
+                                        val r = Type.con (tycon, Vector.map (tyvars, Type.var))
+                                        val t = case arg of NONE => r | SOME t => Type.arrow (t, r)
+                                        val s = Scheme.make (Vector.toList tyvars,t)
+                                      in
+                                        extendVid (Con.toAstVid con, Env.ValDef.make (Env.ValDef.VCON con, s)) env
+                                      end)
+                      in
+                        env
+                      end)
+
+               val env =
+                  extendTycon (Ast.Tycon.fromSymbol (Symbol.unit, Region.bogus),
+                               Env.TypDef.make {typfun = TyAtom.TypFun.fromType (TyAtom.Type.unit), cons = []})
+                              env
             in
-               ()
+               env
             end
       end
 
@@ -286,9 +235,13 @@ local
 
 in
 
-   fun addPrim E =
-      (Env.addPrim E
-       ; primitiveDecs)
+   fun addPrim env =
+      let 
+        val env   = Env.addPrim env
+        val cdecs = primitiveDecs
+      in
+        (cdecs, env)
+      end
 end
 
 
@@ -387,7 +340,7 @@ fun elaborate {input: MLBString.t}: Xml.Program.t =
                File.withOut
                (f, fn out =>
                 Layout.outputl (Env.layoutCurrentScope E, out))
-      val _ = Env.processDefUse E
+      (* val _ = Env.processDefUse E *)
       val _ =
          case !Control.exportHeader of
             NONE => ()

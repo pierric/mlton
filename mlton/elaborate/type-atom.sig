@@ -28,7 +28,10 @@ signature TYPE_ATOM = sig
     val layout: t -> Layout.t
     val free  : t -> VarSet.t
 
-    val bool : t
+    val bool      : t
+    val intInf    : t
+    val var       : Tyvar.t -> t
+    val con       : Tycon.t * (t vector) -> t
     val arrow     : t * t -> t
     val newNoname : unit -> t
     val deArrow   : t -> (t * t) option
@@ -70,7 +73,13 @@ signature TYPE_ATOM = sig
 
   structure TypFun : sig
     type t
-    val apply : t * Type.t list -> Type.t
+    datatype arity = Arity of int | NaryCon
+
+    val apply : t * Type.t vector -> Type.t
+    val arity : t -> arity
+
+    val fromTycon : Tycon.t * TyconKind.t -> t
+    val fromType  : Type.t  -> t
   end
 
   val unify : Type.t * Type.t -> Subst.t

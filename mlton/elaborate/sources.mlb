@@ -17,6 +17,8 @@ local
    type-atom.fun
    core-lang.sig
    core-lang.fun
+   decs.sig
+   decs.fun
    elaborate-env.sig
    elaborate-env.fun
    elaborate-type.sig
@@ -24,10 +26,13 @@ local
    elaborate-core.sig
    elaborate-core.fun
    elaborate-program.sig
-   (*
    elaborate-program.fun
-   *)
+   elaborate-mlbs.sig
+   elaborate-mlbs.fun
+   elaborate.sig
+   elaborate.fun
 in
    signature CONST_TYPE
-(* functor Elaborate *)
+   functor TypeAtom
+   functor Elaborate
 end

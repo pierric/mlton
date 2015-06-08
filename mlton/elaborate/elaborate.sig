@@ -8,23 +8,21 @@
 
 signature ELABORATE_STRUCTS = 
    sig
-      structure Ast: AST
-      structure CoreML: CORE_ML
-      structure TypeEnv: TYPE_ENV
-      sharing Ast.Record = CoreML.Record
-      sharing Ast.SortedRecord = CoreML.SortedRecord
-      sharing Ast.Tyvar = CoreML.Tyvar
-      sharing CoreML.Atoms = TypeEnv.Atoms
-      sharing CoreML.Type = TypeEnv.Type
+      structure Ast    : AST
+      structure TyAtom : TYPE_ATOM
+      structure CoreML : CORE_ML
+      sharing Ast.Tyvar    = CoreML.Tyvar
+      sharing CoreML.Atoms = TyAtom.Atoms
+      sharing CoreML.Type  = TyAtom.Type
    end
 
 signature ELABORATE = 
    sig
       include ELABORATE_STRUCTS
 
-      structure Env: ELABORATE_ENV
+      structure Env : ELABORATE_ENV
 
       val elaborateMLB:
-         Ast.Basdec.t * {addPrim: Env.t -> CoreML.Dec.t list}
+         Ast.Basdec.t * {addPrim: Env.t -> CoreML.Dec.t list * Env.t}
          -> Env.t * (CoreML.Dec.t list * bool) vector
   end

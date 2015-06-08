@@ -11,20 +11,22 @@ struct
 
 open S
 
-structure Env = ElaborateEnv (structure Ast = Ast
-                              structure CoreML = CoreML
-                              structure TypeEnv = TypeEnv)
+structure Core = CoreLang     (structure TyAtom = TyAtom
+							   structure CoreML = CoreML)
 
-local
-   open Env
-in
-   structure Decs = Decs
-end
+structure Decs = Decs         (structure TyAtom = TyAtom
+							   structure Core   = Core)
+
+structure Env  = ElaborateEnv (structure Atoms  = CoreML.Atoms
+							   open Atoms
+							   structure Ast    = Ast
+							   structure TyAtom = TyAtom)
 
 structure ElaborateMLBs = ElaborateMLBs (structure Ast = Ast
-                                         structure CoreML = CoreML
+							             structure Core = Core
                                          structure Decs = Decs
-                                         structure Env = Env)
+                                         structure Env = Env
+                                         structure CoreML = CoreML)
 
 open ElaborateMLBs
 end

@@ -80,6 +80,9 @@ struct
     structure Clam = Core.Lambda
     structure Adec = Ast.Dec
     structure Cdec = Core.Dec
+    structure Cvar = Core.CoreML.Var
+    structure Aconst = Ast.Const
+    structure Cconst = Core.CoreML.Const
     open Control
   in
 
@@ -122,8 +125,8 @@ struct
           in
             if Option.exists (optvd, isCon o value) then
               let 
-                val valdef   = Option.valOf optvd
-                val VCON con = value valdef
+                val valdef = Option.valOf optvd
+                val con    = deCon (value valdef)
                 val (contyp, targs) = TyAtom.inst (scheme valdef)
                 val _  = if Option.isSome (TyAtom.Type.deArrow contyp) then
                             error (Ast.Longvid.region longvid,
@@ -142,7 +145,7 @@ struct
             else
               let 
                 val typ = TyAtom.Type.newNoname ()
-                val var = Core.Var.newNoname () 
+                val var = Cvar.newNoname () 
               in
                 ( Cpat.make ( Cpat.Var var, typ ),
                   Env.extendVid
@@ -150,6 +153,18 @@ struct
                      make (VVAR var, TyAtom.Scheme.fromType typ))
                     Env.empty )
               end
+          end
+      | Apat.Const const =>
+          let 
+            val pat = case Aconst.node const of
+                        Aconst.Bool b => if b then Cpat.truee else Cpat.falsee
+                      | Aconst.Int  i => (Cpat.make (Cpat.Const (Cconst.intInf i), TyAtom.Type.intInf))
+                      | _             => (Control.error (Apat.region apat,
+                                            Layout.str "Only bool and int constant are supported",
+                                            Layout.empty);
+                                          Cpat.make (Cpat.Wild, TyAtom.Type.newNoname ()))
+          in
+            (pat, Env.empty)
           end
       | Apat.Constraint (pat, typ) =>
           let 
@@ -164,7 +179,7 @@ struct
           let 
             val (cpat, env')   = elaboratePat (env, pat)
             val typ1           = Cpat.ty cpat
-            val cvar           = Core.Var.newNoname ()
+            val cvar           = Cvar.newNoname ()
             fun bindvar vartyp = let 
                                    open Env
                                    val s = TyAtom.Scheme.fromType vartyp
@@ -277,7 +292,7 @@ struct
             val (cexp, rho')       = elaborateExp (env, aexp)
             val rho = TyAtom.Subst.compose (rho', rho)
           in
-            (Cexp.lete (Vector.fromList cdecs, cexp), rho)
+            (Cexp.lete (Decs.toVector cdecs, cexp), rho)
           end
       | Aexp.Constraint (aexp, aty) =>
           let 
@@ -337,6 +352,18 @@ struct
           in
             (Cexp.ifthen (cexp0, Cexp.truee, cexp1), rho)
           end
+      | Aexp.Const const =>
+          let 
+            val exp = case Aconst.node const of
+                        Aconst.Bool b => if b then Cexp.truee else Cexp.falsee
+                      | Aconst.Int  i => (Cexp.make (Cexp.Constant (Cconst.intInf i), TyAtom.Type.intInf))
+                      | _             => (Control.error (Aexp.region aexp,
+                                            Layout.str "Only bool and int constant are supported",
+                                            Layout.empty);
+                                          Cexp.var0 (Cvar.newNoname (), TyAtom.Type.newNoname ()))
+          in
+            (exp, TyAtom.Subst.empty)
+          end
       | _ => raise UnsupportedExpressionSyntax
 
     and elaborateLam (env : Env.t, match : Alam.t, kind : string) = 
@@ -359,7 +386,7 @@ struct
         val rho'  = TyAtom.Subst.compose (rho', !rho)
         val cpats = Vector.map (cpatenvs, fn p => Cpat.subst (rho', #1 p))
         val cexps = Vector.map (cexps,    fn e => Cexp.subst (rho', e))
-        val cvar  = Core.Var.newNoname ()
+        val cvar  = Cvar.newNoname ()
         val cpatcexps = Vector.map2 (cpats, cexps,
                           fn (cpat, cexp) => { pat = cpat 
                                              , exp = cexp
@@ -372,7 +399,7 @@ struct
         (clam, rho')
       end
 
-    and elaborateDec (env : Env.t, adec : Adec.t) : Cdec.t list * Env.t *
+    and elaborateDec (env : Env.t, adec : Adec.t) : Decs.t * Env.t *
     TyAtom.Subst.t =
       case Adec.node adec of
         Adec.SeqDec decs   => 
@@ -380,7 +407,7 @@ struct
            val rho0  = TyAtom.Subst.empty
            val state = ( env         (*base environment*)
                        , Env.empty   (*new  environment*)
-                       , []          (*all core decs *)
+                       , Decs.empty  (*all core decs *)
                        , rho0        (*composed substitution*)
                        )
            val state = Vector.fold (decs, state,
@@ -388,12 +415,11 @@ struct
                            let 
                              val env = Env.append (e0, en)
                              val (cdecs1, en', rho1) = elaborateDec (env, dec)
-                             val cdecs = List.map (cdecs, 
-                                           fn cdec => Cdec.subst (rho1, cdec))
+                             val cdecs = Decs.subst (rho1, cdecs) 
                            in
                              ( Env.subst  (rho1, e0)
                              , Env.append (Env.subst (rho1, en), en')
-                             , cdecs @ cdecs1
+                             , Decs.append (cdecs, cdecs1)
                              , TyAtom.Subst.compose (rho1, rho) 
                              )
                            end)
@@ -405,10 +431,11 @@ struct
             val (cdecs1, en1, rho1) = elaborateDec (env, d1)
             val env = Env.append (Env.subst (rho1, env), en1)
             val (cdecs2, en2, rho2) = elaborateDec (env, d2)
-            val en1 = Env.subst (rho2, en1)
-            val rho = TyAtom.Subst.compose (rho2, rho1)
+            val en1    = Env.subst (rho2, en1)
+            val cdecs1 = Decs.subst (rho2, cdecs1)
+            val rho    = TyAtom.Subst.compose (rho2, rho1)
           in
-            (cdecs2, Env.append (en1, en2), rho)
+            (Decs.append (cdecs1, cdecs2), Env.append (en1, en2), rho)
           end
       | Adec.Val {tyvars = vars, vbs = vbs, rvbs = rvbs } =>
           let 
@@ -455,7 +482,7 @@ struct
                                (error (Apat.region pat,
                                   Layout.str "only vid is allowed in recursive binding",
                                   Layout.empty);
-                                Core.Var.newNoname ())
+                                Cvar.newNoname ())
                 val (clam, rho) = elaborateLam 
                                     (Env.extendRgdFV vars 
                                       (Env.append (env, en)),
@@ -507,10 +534,10 @@ struct
                  end)
 
           in
-            ([Cdec.valbind { vars       = vars
-                           , valbind    = Vector.rev (Vector.fromList cs )
-                           , recvalbind = Vector.rev (Vector.fromList cs')
-                           }],
+            (Decs.single (Cdec.valbind { vars       = vars
+                                       , valbind    = Vector.rev (Vector.fromList cs )
+                                       , recvalbind = Vector.rev (Vector.fromList cs')
+                                       }),
              Env.append (Env.subst (rho', en), en'),
              rho')
           end
@@ -524,7 +551,7 @@ struct
                         Layout.str "rebind a type variable",
                         Layout.empty)
             val cnt   = Vector.length fundef
-            val cvars = Vector.tabulate (cnt, fn _ => Core.Var.newNoname ())
+            val cvars = Vector.tabulate (cnt, fn _ => Cvar.newNoname ())
 
             type funsig = Ast.Vid.t * int * TyAtom.Type.t * (Cpat.t vector * Env.t) vector
             fun elabFunSig fbs : funsig = 
@@ -669,7 +696,7 @@ struct
                 val rettyp= TyAtom.subst (rho', rettyp)
                 val rho   = TyAtom.Subst.compose (rho', rho)
                 val argtyps = List.map (argtyps, fn typ => TyAtom.subst (rho,typ))
-                val argvars = List.tabulate (arity, fn _ => Core.Var.newNoname ())
+                val argvars = List.tabulate (arity, fn _ => Cvar.newNoname ())
                 val funtyp  = TyAtom.Type.args (argtyps, rettyp)
 
                 val env   = Env.subst (rho, env)
@@ -690,6 +717,7 @@ struct
                              Cexp.lambda o Clam.make)
                 val clam = case Cexp.node clam of
                              Cexp.Lambda x => x
+                           | _             => Error.bug "Cexp.lambda yields non-Lambda"
               in
                 (clam, funtyp, rho, env)
               end
@@ -730,8 +758,8 @@ struct
                               Env.extendVid (#1 sig_, vd) env
                           end)
           in
-            ( [Cdec.funbind { vars = bound,
-                              decs = Vector.zip (cvars, clams) }]
+            ( Decs.single (Cdec.funbind { vars = bound
+                                        , decs = Vector.zip (cvars, clams) })
             , env'
             , rho)
           end

@@ -8,14 +8,17 @@
 
 signature ELABORATE_MLBS_STRUCTS = 
    sig
-      structure Ast: AST
-      structure CoreML: CORE_ML
+      structure Ast : AST
+      structure Core: CORE_LANG
       structure Decs: DECS
-      structure Env: ELABORATE_ENV
+      structure Env : ELABORATE_ENV
+      structure CoreML : CORE_ML
       sharing Ast = Env.Ast
-      sharing Ast.Tyvar = CoreML.Tyvar
-      sharing CoreML = Decs.CoreML = Env.CoreML
-      sharing Decs = Env.Decs
+      sharing Core = Decs.Core
+      sharing CoreML = Core.CoreML
+      sharing Env.Atoms  = CoreML.Atoms 
+      sharing Env.TyAtom = Core.TyAtom
+      sharing Ast.Tyvar = Env.Tyvar
    end
 
 signature ELABORATE_MLBS = 
@@ -23,6 +26,6 @@ signature ELABORATE_MLBS =
       include ELABORATE_MLBS_STRUCTS
 
       val elaborateMLB:
-         Ast.Basdec.t * {addPrim: Env.t -> CoreML.Dec.t list}
+         Ast.Basdec.t * {addPrim: Env.t -> CoreML.Dec.t list * Env.t}
          -> Env.t * (CoreML.Dec.t list * bool) vector
     end
