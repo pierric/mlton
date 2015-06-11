@@ -24,7 +24,6 @@ signature CORE_LANG = sig
     val make : node * TyAtom.Type.t -> t
     val ty   : t -> TyAtom.Type.t
     val node : t -> node
-    val layout: t -> Layout.t
 
     val subst : TyAtom.Subst.t * t -> t
     
@@ -32,6 +31,7 @@ signature CORE_LANG = sig
     val truee: t
     val falsee: t
 
+    val layout: t -> Layout.t
     val toCoreML : t -> CoreML.Pat.t
   end
 
@@ -61,6 +61,7 @@ signature CORE_LANG = sig
                   | CasePar     of { test: t vector
                                    , rules: { pat: Pat.t vector, exp: t, lay: Layout.t option } vector 
                                    }
+                  | PrimApp     of { prim: TyAtom.Type.t CoreML.Prim.t, args : t vector, targs: TyAtom.Type.t vector}
 
     val make : node * TyAtom.Type.t -> t
     val ty   : t -> TyAtom.Type.t
@@ -88,6 +89,7 @@ signature CORE_LANG = sig
 
     val subst : TyAtom.Subst.t * t -> t
 
+    val layout   : t -> Layout.t
     val toCoreML : t -> CoreML.Exp.t
   end
 
@@ -99,6 +101,7 @@ signature CORE_LANG = sig
 
     val subst : TyAtom.Subst.t * t -> t
 
+    val layout   : t -> Layout.t
     val toCoreML : t -> CoreML.Lambda.t
   end
 

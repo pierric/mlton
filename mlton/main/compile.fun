@@ -30,7 +30,17 @@ end
 structure Ast = Ast (open Atoms)
 structure TyAtom = TypeAtom (open Atoms)
 structure CoreML = CoreML (open Atoms
-                           structure Type = TyAtom.Type)
+                           structure Type = 
+                           struct
+                             open TyAtom.Type
+                             val makeHom = 
+                               fn conf => 
+                                 let 
+                                   val {hom, destroy} = makeHom conf
+                                 in 
+                                  {hom = hom o synonym, destroy = destroy}
+                                 end
+                           end)
 structure Xml = Xml (open Atoms)
 structure Sxml = Sxml (open Xml)
 structure Ssa = Ssa (open Atoms)

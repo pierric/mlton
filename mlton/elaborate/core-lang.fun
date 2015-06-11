@@ -27,7 +27,6 @@ struct
     fun make nt        = P  nt
     fun ty   (P (n,t)) = t
     fun node (P (n,t)) = n
-    fun layout pat     = Layout.empty
 
     fun isWild pat = 
       case node pat of
@@ -76,6 +75,14 @@ struct
         | Layered (v,p) => CP.make (CP.Layered (v, toCoreML p), typat)
         | Wild          => CP.wild typat
       end
+
+    fun layout (p as P (_, t)) = 
+      let 
+        open Layout
+      in
+        seq [CP.layout (toCoreML p), str " : ", TyAtom.Type.layout t]
+      end
+
   end
 
 
@@ -100,6 +107,10 @@ struct
                 | CasePar     of { test : exp vector
                                  , rules: caseparrule vector
                                  }
+                | PrimApp     of { prim: TyAtom.Type.t CoreML.Prim.t
+                                 , args : exp vector
+                                 , targs: TyAtom.Type.t vector
+                                 }
   and    lambda = L of Var.t * TyAtom.Type.t * exp
   and    dec    = Val of { vars       : TyAtom.VarSet.t
                          , valbind    : (Pat.t * Region.t * exp) vector
@@ -110,6 +121,15 @@ struct
                          } 
   withtype caserule    = { pat: Pat.t       , exp: exp, lay: Layout.t option }
   and      caseparrule = { pat: Pat.t vector, exp: exp, lay: Layout.t option }
+
+  fun curry (f : 'a * 'b -> 'c) : 'a -> 'b -> 'c = 
+    fn x => fn y => f (x,y)
+
+  structure Prim = 
+  struct
+    open CoreML.Prim
+    fun subst (rho, p) = map (p, curry TyAtom.subst rho)
+  end
 
   fun tyExp    (E (_,t))     = t
   fun tyLambda (L (_, t, e)) = (t, tyExp e)
@@ -129,20 +149,30 @@ struct
                          , info = i
                          , abnm = a
                          }
-                | CasePar   {test = e, rules = rs} => 
-                    CasePar { test = Vector.map (e, fn e => substExp (rho, e))
-                            , rules= Vector.map (rs, fn c => 
-                                       { pat = Vector.map (#pat c, fn p => substPat (rho, p))
-                                       , exp = substExp (rho, #exp c)
-                                       , lay = #lay c})
-                            }
+                | Constructor {con = c, targs = ts} =>
+                    Constructor {con = c, targs = Vector.map (ts, curry TyAtom.subst rho)}
+                | Constant x  => 
+                    Constant x
+                | Var {var = v, targs = ts} =>
+                    Var {var = v, targs = Vector.map (ts, curry TyAtom.subst rho)}
                 | Lambda lam  =>
                     Lambda (substLam (rho ,lam))
                 | Let (ds, e) => 
                     Let (ds, substExp (rho, e))
                 | Seq es      =>
                     Seq (Vector.map (es, fn e => substExp (rho, e)))
-                | x           => x
+                | CasePar   {test = e, rules = rs} => 
+                    CasePar { test = Vector.map (e, curry substExp rho)
+                            , rules= Vector.map (rs, fn c => 
+                                       { pat = Vector.map (#pat c, curry substPat rho)
+                                       , exp = substExp (rho, #exp c)
+                                       , lay = #lay c})
+                            }
+                | PrimApp {prim = p, args = args, targs = ts} => 
+                    PrimApp { prim  = Prim.subst (rho, p)
+                            , args  = Vector.map (args, curry substExp rho)
+                            , targs = Vector.map (ts,   curry TyAtom.subst rho)
+                            }
       in
         E (e, TyAtom.subst (rho, t)) 
       end
@@ -223,6 +253,12 @@ struct
                            }
                        in
                          CE.make (CE.Case casebdy, tyexp)
+                       end
+    | PrimApp {prim = p, args = args, targs = ts} 
+                    => let
+                         val args = Vector.map (args, toCoreMLExp)
+                       in
+                         CE.make (CE.PrimApp {prim = p, args = args, targs = ts}, tyexp)
                        end
   and toCoreMLDec dec = 
     case dec of
@@ -316,7 +352,7 @@ struct
         case TyAtom.Type.deArrow ty1 of
           SOME (ty11, ty12) => 
             if TyAtom.Type.equals (ty11, ty2) then
-              E (App (e1,e2), ty2)
+              E (App (e1,e2), ty12)
             else
               raise CompilerBugCannotMakeAppExp 
         | NONE =>
@@ -361,6 +397,12 @@ struct
                     TyAtom.Type.bool)
 
     val toCoreML = toCoreMLExp
+    fun layout (e as E (_,t)) =
+      let 
+        open Layout
+      in
+        seq [CE.layout (toCoreML e), str " : ", TyAtom.Type.layout t]
+      end
   end
 
   structure Lambda = 
@@ -372,6 +414,12 @@ struct
     val subst = substLam
 
     val toCoreML = toCoreMLLam
+    fun layout (L (v,t,c)) = 
+      let
+        open Layout
+      in
+        seq [str "lambda ", Var.layout v, str ":", TyAtom.Type.layout t ,str " . ", Exp.layout c]
+      end
   end
 
   structure Dec =
@@ -384,6 +432,7 @@ struct
 
     val toCoreML = toCoreMLDec
     val layout   = CoreML.Dec.layout o toCoreML
+    val layout = CD.layout o toCoreML
   end
 
 end

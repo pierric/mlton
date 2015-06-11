@@ -9,6 +9,7 @@ signature TYPE_ATOM = sig
     type t
     val empty     : t
     val singleton : Tyvar.t -> t
+    val fromL     : Tyvar.t list   -> t
     val fromV     : Tyvar.t vector -> t
     val toV       : t-> Tyvar.t vector
     val append    : t * t -> t
@@ -48,6 +49,9 @@ signature TYPE_ATOM = sig
                                           hom: t -> 'a}
     val tuple: t vector -> t
     val unit: t
+
+    (* simplify the primitive types during the translation from Core-ML to XML *)
+    val synonym : t -> t
   end
   
   structure Subst  : sig
@@ -89,5 +93,4 @@ signature TYPE_ATOM = sig
   val subst : Subst.t * Type.t -> Type.t
   val gen   : VarSet.t * Type.t -> Scheme.t
   val inst  : Scheme.t -> Type.t * Type.t vector
-
 end

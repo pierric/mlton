@@ -43,8 +43,7 @@ fun elaborateMLB (mlb : Basdec.t, {addPrim}) =
     val emptyBinds= BasBinds.empty ()
     val emptyCache= BasCache.empty ()
     val emptyEnv  = ElabEnv.empty
-    val primAdded = ref false
-    val prim      = Promise.lazy (fn () => ElabEnv.makeBasis (ElabEnv.empty, addPrim, fn x => #2 x))
+    val ((primcdecs, _), primbas) = ElabEnv.makeBasis (ElabEnv.empty, addPrim, fn x => #2 x)
 
     fun elabBasDec (basBinds: BasBindsT, basCache: BasCacheT, elabEnv: ElabEnv.t, dec: Basdec.t) : 
                    BasBindsT * BasCacheT * ElabEnv.t * cdecs =
@@ -95,14 +94,8 @@ fun elaborateMLB (mlb : Basdec.t, {addPrim}) =
               end) 
     
       | Basdec.Prim            => 
-          let val ((cdecs, _), bas) = prim ()
-              val env   = ElabEnv.openBasis (elabEnv, bas)
-              val cdecs = if not (!primAdded) then 
-                            let val _ = primAdded := true;
-                            in [(cdecs, false)] end
-                          else
-                            []  
-          in (emptyBinds, basCache, env, cdecs) end
+          let val env   = ElabEnv.openBasis (elabEnv, primbas)
+          in (emptyBinds, basCache, env, []) end
           
       | Basdec.Prog (_, prog)  => 
           let 
@@ -211,6 +204,7 @@ fun elaborateMLB (mlb : Basdec.t, {addPrim}) =
           end
 
     val (_, _,env,decs) = elabBasDec (emptyBinds, emptyCache, emptyEnv, mlb)
+    val decs            = (primcdecs, false) :: decs
     val _               = Control.message (Control.Detail, fn () =>
                             List.layout CoreML.Dec.layout (List.concatMap (decs, #1)))
   in 

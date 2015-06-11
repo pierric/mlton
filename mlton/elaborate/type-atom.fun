@@ -18,6 +18,7 @@ struct
         , equals      = equals
         , ...}
         = List.set {equals = Tyvar.equals, layout = Tyvar.layout}
+    fun fromL x    = x
     fun fromV vars = Vector.toList   vars
     fun toV   vars = Vector.fromList vars
     fun isEmpty [] = true
@@ -124,17 +125,39 @@ struct
     fun deRecord typ =
       Error.bug "record is not supported"
 
-    fun makeHom {con = mapcon, var = mapvar} =
+    fun makeHom' {con = mapcon, rvar = maprvar, fvar = mapfvar} =
       let 
         fun hom typ =
           case typ of
             Cons (con, args) => mapcon (con, Vector.map (args, hom))
-          | RigdTyvar tyvar  => mapvar tyvar
-          | FlexTyvar tyvar  => mapvar tyvar
-
-        fun destroy () = ()
+          | RigdTyvar tyvar  => maprvar tyvar
+          | FlexTyvar tyvar  => mapfvar tyvar
       in
-        {destroy = destroy, hom = hom}
+        {hom = hom}
+      end
+
+    val synonym = let 
+                    fun mapcon (tycon, args) = 
+                      if Tycon.isCharX tycon then
+                        con (Tycon.word ((WordSize.fromBits o CharSize.bits o Tycon.deCharX) tycon), args)
+                      else if Tycon.isIntX tycon then
+                        case Tycon.deIntX tycon of
+                          SOME size => con (Tycon.word ((WordSize.fromBits o IntSize.bits) size), args)
+                        | NONE      => con (tycon, args)
+                      else
+                        con (tycon, args)
+                    fun maprvar x = RigdTyvar x
+                    fun mapfvar x = FlexTyvar x
+                    val {hom, ...} = makeHom' {con = mapcon, rvar = maprvar, fvar = mapfvar}
+                  in
+                    hom
+                  end
+
+    fun makeHom {con = mapcon, var = mapvar} =
+      let
+        val {hom, ...} = makeHom' {con = mapcon, rvar = mapvar, fvar = mapvar}
+      in
+        {hom = hom, destroy = fn () => ()}
       end
 
   end
@@ -163,17 +186,13 @@ struct
       val empty  = empty
       fun make s = 
         singleton s
+
       fun merge ss =
         if disjoint ss then
           union ss
         else 
           raise NotMergeable
-      
-      fun compose (rho1, rho2) = 
-        raise NotUnifiable
-      fun composeL [] = empty
-        | composeL (rho :: rhos) = compose (rho, composeL rhos)
-      
+
       fun minus (rho, bound) = 
         subtract (rho, List.map (bound, fn v => (v, Type.bool)))
 
@@ -240,8 +259,11 @@ struct
                                   val ty2' = subst (rho,ty2)
                                   val rho' = unify (ty1', ty2')
                                 in
-                                  Subst.compose (rho', rho)
+                                  compose (rho', rho)
                                 end)
+
+    and compose (rho1, rho2) = 
+        Subst.merge (rho1, List.map (rho2, fn (v, t) => (v, subst (rho1, t))))
 
     fun unifyL (vt1, vt2) = unifyV (Vector.fromList vt1, Vector.fromList vt2)
 
@@ -255,7 +277,7 @@ struct
               val x    = subst (rho, x)
               val rho' = unify (ty, x)
               val ty'  = subst (rho', ty)
-              val rho' = Subst.compose (rho', rho)
+              val rho' =compose (rho', rho)
             in 
               loop (ty', rho', xs)
             end
@@ -288,6 +310,7 @@ struct
   local
     val substType = subst
     val genType   = gen
+    val composeT  = compose
     exception CompilerBugGenBoundedScheme
   in
     structure Scheme = 
@@ -302,6 +325,16 @@ struct
           genType (env, typ)
         else
           raise CompilerBugGenBoundedScheme
+    end
+
+    structure Subst =
+    struct
+      open Subst
+      
+      val compose = composeT
+        
+      fun composeL []            = empty
+        | composeL (rho :: rhos) = compose (rho, composeL rhos)
     end
   end
 
