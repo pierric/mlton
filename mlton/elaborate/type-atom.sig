@@ -30,28 +30,40 @@ signature TYPE_ATOM = sig
     val free  : t -> VarSet.t
 
     val bool      : t
-    val intInf    : t
+
+    (* Make a type variable *)
     val var       : Tyvar.t -> t
-    val con       : Tycon.t * (t vector) -> t
-    val arrow     : t * t -> t
+    (* Make an fresh type variable *)
     val newNoname : unit -> t
+    (* Make a cons type *)
+    val con       : Tycon.t * (t vector) -> t
+    (* A shortcut for making a arrow type *)
+    val arrow     : t * t -> t
+    (* Scrutinize a arrow (maybe) type *)
     val deArrow   : t -> (t * t) option
 
-    val deArgs    : t -> (t list * t)
+    (* Make a curried function type from arguments' types and result type *)
     val args      : t list * t -> t
+    (* Scrutinize a curried function type *)
+    val deArgs    : t -> t list * t
 
-    val deConOpt: t -> (Tycon.t * t vector) option
-    val deRecord: t -> (Record.Field.t * t) vector
-    val isCharX: t -> bool
-    val isInt: t -> bool
+    (* Make a homomorphism from Type to other types.
+     * The destroy field exists for incorpration to Core-ML, and it is a 
+     * dummy function 
+     *)
     val makeHom: {con: Tycon.t * 'a vector -> 'a,
                   var: Tyvar.t -> 'a} -> {destroy: unit -> unit,
                                           hom: t -> 'a}
-    val tuple: t vector -> t
-    val unit: t
 
     (* simplify the primitive types during the translation from Core-ML to XML *)
     val synonym : t -> t
+
+    (* Following set of function are needed to incorprate into Core-ML *)
+    val deConOpt: t -> (Tycon.t * t vector) option
+    val isCharX: t -> bool
+    val isInt: t -> bool
+    val tuple: t vector -> t
+    val unit: t
   end
   
   structure Subst  : sig
@@ -68,6 +80,7 @@ signature TYPE_ATOM = sig
   structure Scheme : sig
     type t
     val make  : VarSet.t * Type.t -> t
+    val bound : t -> VarSet.t
     val fromType : Type.t -> t
     val free  : t -> VarSet.t
     val subst : Subst.t * t -> t

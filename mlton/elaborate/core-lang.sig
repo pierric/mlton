@@ -1,3 +1,8 @@
+(* 
+  An adaptive Core language between AST and Core-ML, for we are dealing with a subset of Standard ML.
+  And especially for now we don't have tuples and record. Core is easier to deal with in elaboration phase.
+*)   
+
 signature CORE_LANG_STRUCTS = sig
   structure TyAtom : TYPE_ATOM
   structure CoreML : CORE_ML
@@ -14,9 +19,9 @@ signature CORE_LANG = sig
     datatype node = 
        Var      of CoreML.Var.t
      | Const    of CoreML.Const.t
-     | Con      of { con  : CoreML.Con.t
-                   , arg  : t option
-                   , targs: TyAtom.Type.t vector  (* type args during inst *)
+     | Con      of { con  : CoreML.Con.t          (* constructor *)
+                   , arg  : t option              (* argument    *)
+                   , targs: TyAtom.Type.t vector  (* type args during instantiation for polymorphic constructors *)
                    }
      | Layered  of CoreML.Var.t * t
      | Wild
@@ -46,19 +51,27 @@ signature CORE_LANG = sig
                                             , lay    : unit -> Layout.t
                                             , region : Region.t
                                              }
-                                   , abnm : noMatch * Control.Elaborate.DiagDI.t  *
-                                                      Control.Elaborate.DiagEIW.t *
-                                                      Control.Elaborate.DiagEIW.t
+                                   , abnm : noMatch                     * 
+                                            Control.Elaborate.DiagDI.t  *
+                                            Control.Elaborate.DiagEIW.t *
+                                            Control.Elaborate.DiagEIW.t
                                    , test : t
-                                   , rules: { pat: Pat.t       , exp: t, lay: Layout.t option } vector
+                                   , rules: { pat: Pat.t, exp: t, lay: Layout.t option } vector
                                    }
-                  | Constructor of { con: CoreML.Con.t, targs: TyAtom.Type.t vector}
+                  | Constructor of { con: CoreML.Con.t
+                                   , targs: TyAtom.Type.t vector  (* type args during instantiation for polymorphic constructors *)
+                                   }
                   | Constant    of CoreML.Const.t
-                  | Var         of { var: CoreML.Var.t, targs: TyAtom.Type.t vector }
+                  | Var         of { var: CoreML.Var.t
+                                   , targs: TyAtom.Type.t vector  (* type args during instantiation for polymorphic functions *)
+                                   }
                   | Lambda      of lambda
                   | Let         of dec vector * t 
                   | Seq         of t vector
-                  | CasePar     of { test: t vector
+                  | CasePar     of                                (* when elaborating a function, we need to scrutinize a tuple of 
+                                                                     arguments at the same time without tuple type. Therefore 
+                                                                     CasePar is invented for this purpose. *)
+                                   { test: t vector
                                    , rules: { pat: Pat.t vector, exp: t, lay: Layout.t option } vector 
                                    }
                   | PrimApp     of { prim: TyAtom.Type.t CoreML.Prim.t, args : t vector, targs: TyAtom.Type.t vector}
@@ -67,10 +80,18 @@ signature CORE_LANG = sig
     val ty   : t -> TyAtom.Type.t
     val node : t -> node
 
+    (* Make a monophic variable*)
     val var0 : CoreML.Var.t * TyAtom.Type.t -> t
+
+    (* Make a polymorphic variable *)
     val var  : {var: CoreML.Var.t, targs: TyAtom.Type.t vector} * TyAtom.Type.t -> t
+
+    (* Make a polymorphic constructor *)
     val con  : {con: CoreML.Con.t, targs: TyAtom.Type.t vector} * TyAtom.Type.t -> t
+
+    (* Make a constant *)
     val const: CoreML.Const.t * TyAtom.Type.t -> t
+    
     val seq  : t vector -> t
     val lete : dec vector * t -> t
     val ifthen : t * t * t -> t

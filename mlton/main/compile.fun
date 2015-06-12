@@ -40,6 +40,7 @@ structure CoreML = CoreML (open Atoms
                                  in 
                                   {hom = hom o synonym, destroy = destroy}
                                  end
+                             fun deRecord typ = Error.bug "record is not supported"
                            end)
 structure Xml = Xml (open Atoms)
 structure Sxml = Sxml (open Xml)

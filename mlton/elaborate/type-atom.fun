@@ -117,13 +117,9 @@ struct
         Cons (c, _)  => Tycon.isIntX c
       | _            => false
 
-    fun tuple   typs =
-      Cons (Tycon.tuple, typs)
-
+    fun tuple   typs = Cons (Tycon.tuple, typs)
     val unit = tuple (Vector.new0 ())
 
-    fun deRecord typ =
-      Error.bug "record is not supported"
 
     fun makeHom' {con = mapcon, rvar = maprvar, fvar = mapfvar} =
       let 
@@ -203,8 +199,10 @@ struct
 
   structure Scheme =
   struct
-    datatype t = Scheme of tyvar list * typ
+    datatype t = Scheme of VarSet.t * typ
     fun make s = Scheme s 
+
+    fun bound (Scheme (bd, _)) = bd
 
     fun fromType t = make (VarSet.empty, t) 
 
