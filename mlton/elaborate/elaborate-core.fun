@@ -128,6 +128,7 @@ struct
               VS.unions [s1,s2,s3]
             end
         | Prim (Ast.PrimKind.Prim {ty,...}) => collectExplicitTyvarsType ty
+        | Prim _                            => VS.empty
         | Case (e1, m) =>
             let 
               val s1 = collectExplicitTyvars e1
@@ -421,37 +422,37 @@ struct
       | Aexp.App (aexp1, aexp2) =>
           let
             val (cexp0, rho0) = elaborateExp (env, aexp1)
-            
+(*            
             val _ = Control.message (Control.Detail, fn _ =>
                       Layout.seq [Layout.str "DEBUG: cexp0 ", Cexp.layout cexp0])
-
+*)
             val env           = Env.subst (rho0, env)
             val (cexp1, rho1) = elaborateExp (env, aexp2)
             val cexp0         = Cexp.subst (rho1, cexp0)
-
+(*
             val _ = Control.message (Control.Detail, fn _ =>
                       Layout.seq [Layout.str "DEBUG: cexp0 ", Cexp.layout cexp0])
-
+*)
             val ty            = TyAtom.Type.arrow (Cexp.ty cexp1, TyAtom.Type.newNoname ())
-
+(*
             val _ = Control.message (Control.Detail, fn _ =>
                       Layout.seq [Layout.str "DEBUG: ty    ", TyAtom.Type.layout ty])
-
+*)
             val rho2          = TyAtom.unify (Cexp.ty cexp0, ty)
-
+(*
             val _ = Control.message (Control.Detail, fn _ =>
                       Layout.seq [Layout.str "DEBUG: rho2  ", TyAtom.Subst.layout rho2])
-            
+*)            
             val cexp0         = Cexp.subst (rho2, cexp0)
-
+(*
             val _ = Control.message (Control.Detail, fn _ =>
                       Layout.seq [Layout.str "DEBUG: cexp0 ", Cexp.layout cexp0])
-
+*)
             val cexp1         = Cexp.subst (rho2, cexp1)
-
+(*
             val _ = Control.message (Control.Detail, fn _ =>
                       Layout.seq [Layout.str "DEBUG: cexp1 ", Cexp.layout cexp1])
-          in
+*)          in
             (Cexp.app (cexp0, cexp1), TyAtom.Subst.composeL [rho2, rho1, rho0])
           end
       | Aexp.FlatApp aexps =>
@@ -941,23 +942,24 @@ struct
             val ctyps = Vector.map (ctyps, fn ctyp => TyAtom.subst (rho, ctyp))
             val basefree = Env.free (Env.subst (rho, env))
 
-            val env'= Vector.fold3 (sigs, cvars, ctyps, Env.empty,
-                        fn (sig_, cvar, typ, env) =>
-                          let
-                            val vd = Env.ValDef.make 
-                                           (Env.ValDef.VVAR cvar,
-                                            TyAtom.gen (basefree, typ))
-                            in
-                              Env.extendVid (#1 sig_, vd) env
-                          end)
+            val (env', bound) =
+              Vector.fold3 (sigs, cvars, ctyps, (Env.empty, TyAtom.VarSet.empty),
+                fn (sig_, cvar, typ, (env,bound)) =>
+                  let
+                    val sc = TyAtom.gen (basefree, typ)
+                    val vd = Env.ValDef.make (Env.ValDef.VVAR cvar, sc)
+                    val nb = TyAtom.Scheme.bound sc
 
+                    in
+                      (Env.extendVid (#1 sig_, vd) env, TyAtom.VarSet.append (bound, nb))
+                  end)
+(*
             open Layout
             val _ = Control.message (Control.Detail, fn _ =>
                       seq [ str "on generalizing a fun:"
-                          , align [ seq [str "bound:     ", TyAtom.VarSet.layout bound]
-                                  , seq [str "generated: ", TyAtom.VarSet.layout free]]])
-          in
-            ( Decs.single (Cdec.funbind { vars = free
+                          , seq [str "bound:     ", TyAtom.VarSet.layout bound]])
+*)          in
+            ( Decs.single (Cdec.funbind { vars = bound
                                         , decs = Vector.zip (cvars, clams) })
             , env'
             , rho)
