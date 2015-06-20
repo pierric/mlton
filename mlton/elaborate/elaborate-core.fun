@@ -1,8 +1,8 @@
-functor ElaborateCore (S: ELABORATE_CORE_STRUCTS) = 
+functor ElaborateCore (S: ELABORATE_CORE_STRUCTS) =
 struct
   open S
-  
-  local 
+
+  local
     structure Apat = Ast.Pat
     structure Aexp = Ast.Exp
   in
@@ -11,12 +11,12 @@ struct
 
       exception CompilerBugEmptyPatSeq
 
-      fun parsePats (env, pats) = 
+      fun parsePats (env, pats) =
         case Vector.length pats of
           0 => raise CompilerBugEmptyPatSeq
         | 1 => Vector.sub (pats, 0)
-        | 2 => 
-            let 
+        | 2 =>
+            let
               val con = Vector.sub (pats, 0)
               val arg = Vector.sub (pats, 1)
               val pat = case Apat.node con of
@@ -31,8 +31,8 @@ struct
             in
               Apat.makeRegion (pat, reg)
             end
-        | _ => 
-            let 
+        | _ =>
+            let
               val con = Vector.sub (pats, 0)
               val arg = Vector.dropPrefix (pats, 1)
               val reg = Vector.fold (arg, Apat.region con,
@@ -44,11 +44,11 @@ struct
               con
             end
 
-      fun parseExps (env, exps) = 
+      fun parseExps (env, exps) =
         if (Vector.length exps = 1) then
           Vector.sub (exps, 0)
         else
-          let 
+          let
             val exp0 = Vector.sub (exps, 0)
             val exp1 = Vector.sub (exps, 1)
             val apply = fn (a, b) => Aexp.app (b, a)
@@ -56,16 +56,16 @@ struct
             Vector.foldFrom (exps, 2, Aexp.app (exp0, exp1), apply)
           end
 
-      fun parsePatsFunSig (env, pats) = 
+      fun parsePatsFunSig (env, pats) =
         let
           val fname = Vector.sub (pats, 0)
           val args  = Vector.dropPrefix (pats, 1)
-        in 
+        in
           (fname, args)
         end
     end
   end
- 
+
   exception UnsupportedPatternSyntax
   exception UnsupportedExpressionSyntax
   exception UnsupportedDeclarationSyntax
@@ -73,22 +73,22 @@ struct
   exception CompilerBugFunNameInvalid
   local
     structure VS = TyAtom.VarSet
-    fun collectv (f: 'a -> VS.t, v: 'a vector): VS.t = 
+    fun collectv (f: 'a -> VS.t, v: 'a vector): VS.t =
       VS.unions (Vector.toListMap (v, f))
-    fun collectp (f: 'a -> VS.t, p: 'a * 'a)  : VS.t = 
+    fun collectp (f: 'a -> VS.t, p: 'a * 'a)  : VS.t =
       VS.append (f (#1 p), f (#2 p))
-    fun collecto (f: 'a -> VS.t, t: 'a option): VS.t = 
+    fun collecto (f: 'a -> VS.t, t: 'a option): VS.t =
       Option.fold (t, VS.empty, fn (a, set) => f a)
-    fun collectExplicitTyvarsType (t: Ast.Type.t) : VS.t = 
+    fun collectExplicitTyvarsType (t: Ast.Type.t) : VS.t =
       case Ast.Type.node t of
         Ast.Type.Record _    => VS.empty
       | Ast.Type.Var v       => VS.singleton v
       | Ast.Type.Con (_, ts) => collectv (collectExplicitTyvarsType, ts)
-    structure Apat = 
+    structure Apat =
     struct
       open Ast.Pat
-      fun collectExplicitTyvars (pat : t) = 
-        case node pat of 
+      fun collectExplicitTyvars (pat : t) =
+        case node pat of
           App (_, p)            => collectExplicitTyvars p
         | Const _               => VS.empty
         | Constraint (_, ty)    => collectExplicitTyvarsType ty
@@ -107,11 +107,11 @@ struct
         | Wild                  => VS.empty
     end
     structure Cpat = Core.Pat
-    structure Aexp = 
+    structure Aexp =
     struct
       open Ast.Exp
-      fun collectExplicitTyvars exp = 
-        case node exp of 
+      fun collectExplicitTyvars exp =
+        case node exp of
           Andalso es   => collectp (collectExplicitTyvars, es)
         | Orelse  es   => collectp (collectExplicitTyvars, es)
         | App es       => collectp (collectExplicitTyvars, es)
@@ -119,8 +119,8 @@ struct
         | Let (_, e)   => collectExplicitTyvars e
         | Seq es       => collectv (collectExplicitTyvars, es)
         | While {expr, test}       => collectp (collectExplicitTyvars, (expr, test))
-        | If (e1,e2,e3)=> 
-            let 
+        | If (e1,e2,e3)=>
+            let
               val s1 = collectExplicitTyvars e1
               val s2 = collectExplicitTyvars e2
               val s3 = collectExplicitTyvars e3
@@ -130,10 +130,10 @@ struct
         | Prim (Ast.PrimKind.Prim {ty,...}) => collectExplicitTyvarsType ty
         | Prim _                            => VS.empty
         | Case (e1, m) =>
-            let 
+            let
               val s1 = collectExplicitTyvars e1
-              val s2 = case Ast.Match.node m of Ast.Match.T pes => 
-                         Vector.toListMap (pes, fn (p, e) => 
+              val s2 = case Ast.Match.node m of Ast.Match.T pes =>
+                         Vector.toListMap (pes, fn (p, e) =>
                            VS.append (Apat.collectExplicitTyvars p, collectExplicitTyvars e))
               val s2 = VS.unions s2
             in
@@ -149,8 +149,8 @@ struct
             end
         | Fn m =>
             let
-              val s1 = case Ast.Match.node m of Ast.Match.T pes => 
-                         Vector.toListMap (pes, fn (p, e) => 
+              val s1 = case Ast.Match.node m of Ast.Match.T pes =>
+                         Vector.toListMap (pes, fn (p, e) =>
                            VS.append (Apat.collectExplicitTyvars p, collectExplicitTyvars e))
             in
               VS.unions s1
@@ -172,16 +172,310 @@ struct
     structure Cvar   = Atoms.Var
     structure Aconst = Ast.Const
     structure Cconst = Atoms.Const
-    open Control
 
-    val int32 = TyAtom.Type.con (Atoms.Tycon.int (Atoms.IntSize.fromBits (Bits.fromInt 32)), Vector.new0 ())
-    fun word32 (i:IntInf.t) : Cconst.t = Cconst.Word (Atoms.WordX.fromIntInf (i, Atoms.WordSize.word32))
+    structure ElabControl = Control.Elaborate
+    open Control
+    fun checkFlag (c: (bool,bool) ElabControl.t, keyword: string, region) =
+      if ElabControl.current c
+        then ()
+      else
+        let
+          open Layout
+        in
+          Control.error
+          (region,
+           str (concat (if ElabControl.expert c
+                           then [keyword, " disallowed"]
+                           else [keyword, " disallowed, compile with -default-ann '",
+                                 ElabControl.name c, " true'"])),
+           empty)
+        end
+
+    fun makePrim (prim, ty) =
+      let
+        fun primApp {prim, args, retty} =
+          let
+            exception UnsupportedPrimitive
+            fun unsupported x = raise UnsupportedPrimitive
+            val targs = Core.CoreML.Prim.extractTargs (prim,
+                          { args    = Vector.map (args, Cexp.ty)
+                          , result  = retty
+                          , typeOps = { deArrow = unsupported
+                                      , deArray = unsupported
+                                      , deRef   = unsupported
+                                      , deVector= unsupported
+                                      , deWeak  = unsupported
+                                      }
+                          })
+          in
+            Cexp.make (Cexp.PrimApp {prim = prim, args = args, targs = targs}, retty)
+          end
+        val (args, ret) = TyAtom.Type.deArgs ty
+        val cexp  = case args of
+                      []    =>
+                        primApp {prim = prim, args = Vector.new0 (), retty = ret}
+                    | _     =>
+                        let
+                          val vars = List.map (args, fn argty => (Cvar.newNoname (), argty))
+                          val body = primApp {prim = prim, args = Vector.fromListMap (vars, Cexp.var0), retty = ret}
+                        in
+                          List.foldr (vars, body, fn ((v,t), e) => (Cexp.lambda o Clam.make) (v,t,e))
+                        end
+      in
+        cexp
+      end
+
+    structure PrimKind              = Ast.PrimKind
+    structure ImportExportAttribute = PrimKind.ImportExportAttribute
+    structure SymbolAttribute       = PrimKind.SymbolAttribute
+    structure CFunction             = Core.CoreML.CFunction
+    structure CKind                 = CFunction.Kind
+    structure Convention            = CFunction.Convention
+    structure SymbolScope           = CFunction.SymbolScope
+    structure CType                 = Core.CoreML.CType
+    structure Ffi                   = Core.CoreML.Ffi
+    structure Tycon                 = Core.CoreML.Tycon
+    structure RealSize              = Core.CoreML.RealSize
+    structure CharSize              = Core.CoreML.CharSize
+    structure IntSize               = Core.CoreML.IntSize
+    structure WordSize              = Core.CoreML.WordSize
+    fun mkConv {raw, def, region} =
+      let
+        fun isIEAttrConv ImportExportAttribute.Cdecl   = true
+          | isIEAttrConv ImportExportAttribute.Stdcall = true
+          | isIEAttrConv _ = false
+        val conv = List.keepAll (raw, isIEAttrConv)
+      in
+        case conv of
+          [] => def
+        | [ImportExportAttribute.Cdecl]   => Convention.Cdecl
+        | [ImportExportAttribute.Stdcall] =>
+                (warning (region,
+                   Layout.str "stdcall is not supported",
+                   Layout.empty);
+                 def)
+        | _  => (error (region,
+                   Layout.seq [ Layout.str "invalid attributes for _import: "
+                              , List.layout ImportExportAttribute.layout conv ],
+                   Layout.empty);
+                 def)
+      end
+
+    fun mkKind {raw, def, region} =
+      let
+        fun isIEAttrKind ImportExportAttribute.Impure  = true
+          | isIEAttrKind ImportExportAttribute.Pure    = true
+          | isIEAttrKind ImportExportAttribute.Runtime = true
+          | isIEAttrKind _ = false
+        val kind = List.keepAll (raw, isIEAttrKind)
+      in
+        case kind of
+          [] => def
+        | [ImportExportAttribute.Impure] => CKind.Impure
+        | [ImportExportAttribute.Pure]   => CKind.Pure
+        | [ImportExportAttribute.Runtime]=> CKind.runtimeDefault
+        | _ => (error (region,
+                  Layout.seq [ Layout.str "invalid attributes for _import: "
+                             , List.layout ImportExportAttribute.layout kind ],
+                  Layout.empty);
+                def)
+      end
+
+    fun mkScope {raw, name, def, region} =
+      let
+        fun isIEAttrScope ImportExportAttribute.External = true
+          | isIEAttrScope ImportExportAttribute.Private  = true
+          | isIEAttrScope ImportExportAttribute.Public   = true
+          | isIEAttrScope _ = false
+        val scope = List.keepAll (raw, isIEAttrScope)
+        val scope = case (name, scope) of
+                      (_, [])   => def
+                    | (SOME n, [ImportExportAttribute.External]) => SymbolScope.External
+                    | (SOME n, [ImportExportAttribute.Private])  => SymbolScope.Private
+                    | (SOME n, [ImportExportAttribute.Public])   => SymbolScope.Public
+                    | _ => (error (region,
+                              Layout.seq [ Layout.str "invalid attributes for _import: "
+                                         , List.layout ImportExportAttribute.layout scope ],
+                              Layout.empty);
+                            def)
+        val _ = case name of
+                  SOME name =>
+                    if scope = Ffi.checkScope {name = name, symbolScope = scope} then
+                      ()
+                    else
+                      warning (region,
+                        Layout.str "symbol redeclared to have a different scope",
+                        Layout.empty)
+                | NONE => ()
+      in
+        scope
+      end
+
+    fun toCType ty =
+      let
+        fun sized (tycon: Bits.t -> Tycon.t, ctypes) =
+           List.map
+           (ctypes, fn cty =>
+            let
+               val c = tycon (Bytes.toBits (CType.size cty))
+               val s = Tycon.toString c
+               val s =
+                  CharVector.tabulate
+                  (String.size s, fn i =>
+                   let
+                      val c = String.sub (s, i)
+                   in
+                      if i = 0 then Char.toUpper c else c
+                   end)
+            in
+               {name = s, ctype = cty, tycon = c}
+            end)
+        val nullary  =
+              [{name = "Bool"    , ctype = CType.bool             , tycon = Tycon.bool},
+               {name = "CPointer", ctype = CType.cpointer         , tycon = Tycon.cpointer},
+               {name = "Real32"  , ctype = CType.real RealSize.R32, tycon = Tycon.real RealSize.R32},
+               {name = "Real64"  , ctype = CType.real RealSize.R64, tycon = Tycon.real RealSize.R64},
+               {name = "Thread"  , ctype = CType.thread           , tycon = Tycon.thread}]
+              @ sized (Tycon.char o CharSize.fromBits,
+                       let
+                          open CType
+                       in
+                          [Word8, Word16, Word32]
+                       end)
+              @ sized (Tycon.int o IntSize.fromBits,
+                       let
+                          open CType
+                       in
+                          [Int8, Int16, Int32, Int64]
+                       end)
+              @ sized (Tycon.word o WordSize.fromBits,
+                       let
+                          open CType
+                       in
+                          [Word8, Word16, Word32, Word64]
+                       end)
+
+        val unary: Tycon.t list =
+           [Tycon.array, Tycon.reff, Tycon.vector]
+
+        fun mapcon (tycon, args) =
+          case Vector.length args of
+            0 => Option.map (List.peek (nullary, fn {tycon = tycon',...} =>
+                                                   Tycon.equals (tycon, tycon')),
+                             fn {ctype,name,...} =>
+                               {ctype = ctype, name = name})
+          | 1 => if List.exists (unary, fn tycon' => Tycon.equals (tycon, tycon')) andalso
+                    Option.isSome (Vector.sub (args, 0)) then
+                   SOME {ctype = CType.objptr, name = "Objptr"}
+                else
+                   NONE
+          | _ => NONE
+        fun mapvar tyvar = NONE
+        val {hom,...} = TyAtom.Type.makeHom {con = mapcon, var = mapvar}
+
+      in
+        Option.map (hom ty, fn {ctype, name} =>
+          {ctype = ctype, name = name, ty = ty})
+      end
+
+    fun toCFunType ty =
+      let
+        val (arg, ret) = TyAtom.Type.deArgs ty
+        val arg = if (List.isEmpty arg) then
+                    NONE
+                  else
+                    Exn.withEscape (fn esc =>
+                      SOME (List.map (arg, fn a =>
+                        case toCType a of NONE => esc NONE | SOME a => a)))
+        val ret = case toCType ret of
+                    NONE   => if TyAtom.Type.isUnit ret then
+                                SOME NONE
+                              else
+                                NONE
+                  | SOME t => SOME (SOME t)
+      in
+        case (arg, ret) of
+          (SOME a, SOME r) => SOME (Vector.fromList a, r)
+        | _                => NONE
+      end
+
+    fun import {attributes, name, ty, region} =
+      case toCFunType ty of
+        NONE             => (error (region,
+                               Layout.str "invalid type for _import",
+                               Layout.empty);
+                             Core.CoreML.Prim.bogus)
+      | SOME (args, ret) =>
+          let
+            val conv  = mkConv { raw = attributes, def = Convention.Cdecl  , region = region }
+            val kind  = mkKind { raw = attributes, def = CKind.Impure      , region = region }
+            val scope = mkScope{ raw = attributes, def = SymbolScope.Public, region = region, name = name }
+            val proto = (Vector.map (args, #ctype), Option.map (ret, #ctype))
+            val args  = let
+                          val args = Vector.map (args, #ty)
+                        in
+                          case name of
+                            NONE   => Vector.concat [Vector.new1 TyAtom.Type.cpointer, args]
+                          | SOME _ => args
+                        end
+            val ret   = case ret of
+                          NONE          => TyAtom.Type.unit
+                        | SOME {ty,...} => ty
+            val target= case name of
+                          NONE   => CFunction.Target.Indirect
+                        | SOME n => CFunction.Target.Direct n
+            val func  = CFunction.T { args        = args
+                                    , convention  = conv
+                                    , kind        = kind
+                                    , symbolScope = scope
+                                    , prototype   = proto
+                                    , return      = ret
+                                    , target      = target }
+            val _ = Control.message (Control.Detail, fn _ =>
+                      CFunction.layout (func, TyAtom.Type.layout))
+          in
+            Core.CoreML.Prim.ffi func
+          end
+
+
+    fun lookupConst {name, ty, default, region} =
+      let
+        val ct = if TyAtom.Type.isBool ty then
+                   Cconst.ConstType.Bool
+                 else if TyAtom.Type.deStringX ty = SOME Atoms.CharSize.C8 then
+                   Cconst.ConstType.String
+                 else
+                   (error (region,
+                      Layout.seq [ Layout.str "unsupport type in _const/_build_const/_command_line_const: "
+                                 , TyAtom.Type.layout ty ],
+                      Layout.empty);
+                    Error.bug "lookupConst cannot construct the const type")
+        val const = !Cconst.lookup ({default = default, name = name}, ct)
+      in
+        Cexp.make (Cexp.Constant const, ty)
+      end
+
+    val word8t   = TyAtom.Type.con (Atoms.Tycon.word (Atoms.WordSize.word8), Vector.new0 ())
+    val char8t   = TyAtom.Type.con (Atoms.Tycon.char (Atoms.CharSize.fromBits (Bits.fromInt 8)), Vector.new0 ())
+    val int32t   = TyAtom.Type.con (Atoms.Tycon.int  (Atoms.IntSize.fromBits (Bits.fromInt 32)), Vector.new0 ())
+    val string8t = TyAtom.Type.con (Atoms.Tycon.vector, Vector.new1 char8t)
+    fun word8   i = Cconst.Word (Atoms.WordX.fromIntInf (i, Atoms.WordSize.word8 ))
+    fun word32  i = Cconst.Word (Atoms.WordX.fromIntInf (i, Atoms.WordSize.word32))
+    fun string8 v = Cconst.WordVector (Atoms.WordXVector.tabulate
+                                        ( {elementSize = Atoms.WordSize.word8}
+                                        , Vector.length v
+                                        , fn i => let
+                                                    val ch = Vector.sub (v, i)
+                                                  in
+                                                    Atoms.WordX.fromIntInf (ch, Atoms.WordSize.word8)
+                                                  end
+                                        ))
   in
 
     fun elaboratePat (env, apat) : Cpat.t * Env.t =
       case Apat.node apat of
         Apat.App (longcon, pat) =>
-          let 
+          let
             val optval = Env.lookupCon (env, longcon)
             val _      = if Option.isNone optval then
                            error (Apat.region apat,
@@ -210,13 +504,13 @@ struct
             ( Cpat.subst (rho, cpat)
             , Env.subst (rho, argenv') )
           end
-      | Apat.Var {name=longvid, ...}  => 
+      | Apat.Var {name=longvid, ...}  =>
           let
             val optvd = Env.lookupVid (env, longvid)
             open Env.ValDef
           in
             if Option.exists (optvd, isCon o value) then
-              let 
+              let
                 val valdef = Option.valOf optvd
                 val con    = deCon (value valdef)
                 val (contyp, targs) = TyAtom.inst (scheme valdef)
@@ -235,9 +529,9 @@ struct
                   Env.empty )
               end
             else
-              let 
+              let
                 val typ = TyAtom.Type.newNoname ()
-                val var = Cvar.newNoname () 
+                val var = Cvar.newNoname ()
               in
                 ( Cpat.make ( Cpat.Var var, typ ),
                   Env.extendVid
@@ -247,19 +541,21 @@ struct
               end
           end
       | Apat.Const const =>
-          let 
+          let
             val pat = case Aconst.node const of
-                        Aconst.Bool b => if b then Cpat.truee else Cpat.falsee
-                      | Aconst.Int  i => Cpat.make (Cpat.Const (word32 i), int32)
-                      | _             => (Control.error (Apat.region apat,
-                                            Layout.str "Only bool and int constant are supported",
-                                            Layout.empty);
-                                          Cpat.make (Cpat.Wild, TyAtom.Type.newNoname ()))
+                        Aconst.Bool b   => if b then Cpat.truee else Cpat.falsee
+                      | Aconst.Int  i   => Cpat.make (Cpat.Const (word32  i), int32t)
+                      | Aconst.Char c   => Cpat.make (Cpat.Const (word8   c), char8t)
+                      | Aconst.String v => Cpat.make (Cpat.Const (string8 v), string8t)
+                      | _               => (Control.error (Apat.region apat,
+                                              Layout.str "Only bool, int, char, string constant are supported",
+                                              Layout.empty);
+                                            Cpat.make (Cpat.Wild, TyAtom.Type.newNoname ()))
           in
             (pat, Env.empty)
           end
       | Apat.Constraint (pat, typ) =>
-          let 
+          let
             val (cpat, env') = elaboratePat (env, pat)
             val typ1         = Cpat.ty cpat
             val typ2         = ElabTy.elaborateT (env, typ)
@@ -268,22 +564,22 @@ struct
             (Cpat.subst (rho, cpat) , Env.subst (rho, env') )
           end
       | Apat.Layered {var=var, pat=pat, constraint=typ,...} =>
-          let 
+          let
             val (cpat, env')   = elaboratePat (env, pat)
             val typ1           = Cpat.ty cpat
             val cvar           = Cvar.newNoname ()
-            fun bindvar vartyp = let 
+            fun bindvar vartyp = let
                                    open Env
                                    val s = TyAtom.Scheme.fromType vartyp
                                  in
                                    extendVid (Ast.Vid.fromVar var, ValDef.make (ValDef.VVAR cvar, s))
                                  end
           in
-            case typ of 
-              NONE     => 
+            case typ of
+              NONE     =>
                 (cpat, bindvar typ1 env')
-            | SOME typ => 
-                let 
+            | SOME typ =>
+                let
                   val typ2 = ElabTy.elaborateT (env, typ)
                   val rho  = TyAtom.unify (typ1, typ2)
                 in
@@ -296,7 +592,7 @@ struct
                Layout.str "tuple of pattern is not supported",
                Layout.empty);
              raise UnsupportedPatternSyntax)
-          else 
+          else
             elaboratePat (env, Vector.sub (pats, 0))
       | Apat.Wild =>
           let
@@ -310,7 +606,7 @@ struct
           in
             elaboratePat (env, pat)
           end
-      | Apat.List _   => 
+      | Apat.List _   =>
           (error (Apat.region apat,
              Layout.str "list of pattern is not supported",
              Layout.empty);
@@ -321,10 +617,10 @@ struct
              Layout.empty);
            raise UnsupportedPatternSyntax)
 
-    and elaborateExp (env, aexp) = 
+    and elaborateExp (env, aexp) =
       case Aexp.node aexp of
         Aexp.Var {name=longvid,...} =>
-          let 
+          let
             val vd   = Env.lookupVid (env,longvid)
             val cexp = case vd of
                          NONE    => (error (Ast.Longvid.region longvid,
@@ -332,22 +628,22 @@ struct
                                        Layout.empty);
                                     Cexp.var ({var = Cvar.newNoname (), targs = Vector.new0 ()},
                                               TyAtom.Type.newNoname ()))
-                       | SOME vd => 
+                       | SOME vd =>
                            let
                              open Env
-                             val (ty, targs) = TyAtom.inst (ValDef.scheme vd) 
-                           in 
+                             val (ty, targs) = TyAtom.inst (ValDef.scheme vd)
+                           in
                              case ValDef.value vd of
-                               ValDef.VVAR cvar => Cexp.var ({var = cvar, targs = targs}, ty) 
+                               ValDef.VVAR cvar => Cexp.var ({var = cvar, targs = targs}, ty)
                              | ValDef.VCON ccon => Cexp.con ({con = ccon, targs = targs}, ty)
                            end
-          in 
+          in
             (cexp, TyAtom.Subst.empty)
           end
       | Aexp.Seq aexps =>
           let
             val state = (env, TyAtom.Subst.empty, [])
-            val (_, rho, cexps) = Vector.fold (aexps, state, 
+            val (_, rho, cexps) = Vector.fold (aexps, state,
                                     fn (aexp, (env, rho, cexps)) =>
                                       let
                                         val (cexp, rho') = elaborateExp (env, aexp)
@@ -377,7 +673,7 @@ struct
             val cexp0 = Cexp.subst (rho3, cexp0)
             val cexp1 = Cexp.subst (rho3, cexp1)
             val cexp2 = Cexp.subst (rho3, cexp2)
-          in 
+          in
             (Cexp.ifthen (cexp0, cexp1, cexp2), rho4)
           end
       | Aexp.Let (adec, aexp) =>
@@ -390,7 +686,7 @@ struct
             (Cexp.lete (Decs.toVector cdecs, cexp), rho)
           end
       | Aexp.Constraint (aexp, aty) =>
-          let 
+          let
             val (cexp, rho0) = elaborateExp (env, aexp)
             val env          = Env.subst (rho0, env)
             val cty          = ElabTy.elaborateT (env, aty)
@@ -410,7 +706,7 @@ struct
             val cexp         = Cexp.subst (rho2, cexp)
             val clam         = Clam.subst (rho2, clam)
             val cexpcase     = Cexp.app (Cexp.lambda clam, cexp)
-          in 
+          in
             (cexpcase, TyAtom.Subst.composeL [rho2, rho1, rho0])
           end
       | Aexp.Fn match =>
@@ -422,37 +718,14 @@ struct
       | Aexp.App (aexp1, aexp2) =>
           let
             val (cexp0, rho0) = elaborateExp (env, aexp1)
-(*            
-            val _ = Control.message (Control.Detail, fn _ =>
-                      Layout.seq [Layout.str "DEBUG: cexp0 ", Cexp.layout cexp0])
-*)
             val env           = Env.subst (rho0, env)
             val (cexp1, rho1) = elaborateExp (env, aexp2)
             val cexp0         = Cexp.subst (rho1, cexp0)
-(*
-            val _ = Control.message (Control.Detail, fn _ =>
-                      Layout.seq [Layout.str "DEBUG: cexp0 ", Cexp.layout cexp0])
-*)
             val ty            = TyAtom.Type.arrow (Cexp.ty cexp1, TyAtom.Type.newNoname ())
-(*
-            val _ = Control.message (Control.Detail, fn _ =>
-                      Layout.seq [Layout.str "DEBUG: ty    ", TyAtom.Type.layout ty])
-*)
             val rho2          = TyAtom.unify (Cexp.ty cexp0, ty)
-(*
-            val _ = Control.message (Control.Detail, fn _ =>
-                      Layout.seq [Layout.str "DEBUG: rho2  ", TyAtom.Subst.layout rho2])
-*)            
             val cexp0         = Cexp.subst (rho2, cexp0)
-(*
-            val _ = Control.message (Control.Detail, fn _ =>
-                      Layout.seq [Layout.str "DEBUG: cexp0 ", Cexp.layout cexp0])
-*)
             val cexp1         = Cexp.subst (rho2, cexp1)
-(*
-            val _ = Control.message (Control.Detail, fn _ =>
-                      Layout.seq [Layout.str "DEBUG: cexp1 ", Cexp.layout cexp1])
-*)          in
+          in
             (Cexp.app (cexp0, cexp1), TyAtom.Subst.composeL [rho2, rho1, rho0])
           end
       | Aexp.FlatApp aexps =>
@@ -484,42 +757,23 @@ struct
             (Cexp.ifthen (cexp0, Cexp.truee, cexp1), rho)
           end
       | Aexp.Const const =>
-          let 
+          let
             val exp = case Aconst.node const of
-                        Aconst.Bool b => if b then Cexp.truee else Cexp.falsee
-                      | Aconst.Int  i => (Cexp.make (Cexp.Constant (word32 i), int32))
-                      | _             => (Control.error (Aexp.region aexp,
-                                            Layout.str "Only bool and int constant are supported",
-                                            Layout.empty);
-                                          Cexp.var0 (Cvar.newNoname (), TyAtom.Type.newNoname ()))
+                        Aconst.Bool b   => if b then Cexp.truee else Cexp.falsee
+                      | Aconst.Int  i   => Cexp.make (Cexp.Constant (word32  i), int32t)
+                      | Aconst.Char c   => Cexp.make (Cexp.Constant (word8   c), char8t)
+                      | Aconst.String v => Cexp.make (Cexp.Constant (string8 v), string8t)
+                      | _               => (Control.error (Aexp.region aexp,
+                                              Layout.str "Only bool, int, char, string constant are supported",
+                                              Layout.empty);
+                                            Cexp.var0 (Cvar.newNoname (), TyAtom.Type.newNoname ()))
           in
             (exp, TyAtom.Subst.empty)
           end
       | Aexp.Prim (Ast.PrimKind.Prim {name = name, ty = ty}) =>
           let
-            fun mkPrimApp {prim, args, retty} = 
-              let
-                exception UnsupportedPrimitive
-                fun unsupported x = raise UnsupportedPrimitive
-                val targs = Core.CoreML.Prim.extractTargs (prim, 
-                              { args    = Vector.map (args, Cexp.ty)
-                              , result  = retty 
-                              , typeOps = { deArrow = unsupported
-                                          , deArray = unsupported
-                                          , deRef   = unsupported
-                                          , deVector= unsupported
-                                          , deWeak  = unsupported
-                                          }
-                              })
-              in
-                Cexp.make (Cexp.PrimApp {prim = prim, args = args, targs = targs}, retty)
-              end
+            val _  = checkFlag (ElabControl.allowPrim, "_prim", Aexp.region aexp)
             val ty = ElabTy.elaborateT (env, ty)
-            val (args, ret) = TyAtom.Type.deArgs ty
-            (*
-            val _ = Control.message (Control.Detail, fn _ =>
-                      Layout.seq [Layout.str "DEBUG: ", Layout.align [List.layout TyAtom.Type.layout args, TyAtom.Type.layout ret]])
-            *)
             val prim  = case Core.CoreML.Prim.fromString name of
                           NONE => (Control.error
                                      (Aexp.region aexp,
@@ -527,35 +781,53 @@ struct
                                       Layout.empty);
                                    Core.CoreML.Prim.bogus)
                         | SOME prim => prim
-            val cexp  = case args of
-                          []    =>
-                            mkPrimApp {prim = prim, args = Vector.new0 (), retty = ret}
-                        | _     =>
-                            let
-                              val vars = List.map (args, fn argty => (Cvar.newNoname (), argty))
-                              val body = mkPrimApp {prim = prim, args = Vector.fromListMap (vars, Cexp.var0), retty = ret}
-                            in
-                              List.foldr (vars, body, fn ((v,t), e) => (Cexp.lambda o Clam.make) (v,t,e))
-                            end
-            (*
-            val _ = Control.message (Control.Detail, fn _ =>
-                      Layout.seq [Layout.str "DEBUG: ", TyAtom.Type.layout (Cexp.ty cexp)])
-            *)
           in
-            (cexp, TyAtom.Subst.empty)
+            (makePrim (prim, ty), TyAtom.Subst.empty)
           end
-
+      | Aexp.Prim (Ast.PrimKind.Import {attributes, name, ty}) =>
+          let
+            val _  = checkFlag (ElabControl.allowFFI, "_import", Aexp.region aexp)
+            val ty = ElabTy.elaborateT (env, ty)
+            val prim = import { attributes  = attributes
+                              , name        = SOME name
+                              , region      = Aexp.region aexp
+                              , ty          = ty }
+          in
+            (makePrim (prim, ty), TyAtom.Subst.empty)
+          end
+      | Aexp.Prim (Ast.PrimKind.Const {name, ty}) =>
+          let
+            val _  = checkFlag (ElabControl.allowConstant, "_const", Aexp.region aexp)
+            val ty = ElabTy.elaborateT (env, ty)
+            val const = lookupConst { name = name
+                                    , ty = ty
+                                    , default = NONE
+                                    , region = Aexp.region aexp }
+          in
+            (const, TyAtom.Subst.empty)
+          end
+      | Aexp.Prim (Ast.PrimKind.BuildConst {name, ty}) =>
+          let
+            val _  = checkFlag (ElabControl.allowConstant, "_build_const", Aexp.region aexp)
+            val ty = ElabTy.elaborateT (env, ty)
+            val const = lookupConst { name = name
+                                    , ty = ty
+                                    , default = NONE
+                                    , region = Aexp.region aexp }
+          in
+            (const, TyAtom.Subst.empty)
+          end
       | _ => raise UnsupportedExpressionSyntax
 
-    and elaborateLam (env : Env.t, match : Alam.t, kind : string) = 
-      let 
+    and elaborateLam (env : Env.t, match : Alam.t, kind : string) =
+      let
         val patexps  = case Alam.node match of Alam.T x => x
-        val cpatenvs = Vector.map (patexps, 
+        val cpatenvs = Vector.map (patexps,
                          fn (apat, _) => elaboratePat (env, apat))
         val rho   = ref (TyAtom.unifyS (Vector.toListMap (cpatenvs, Cpat.ty o #1)))
-        val cexps = Vector.map2 (cpatenvs, patexps, 
-                      fn ((_, envadd), (_, aexp)) => 
-                        let 
+        val cexps = Vector.map2 (cpatenvs, patexps,
+                      fn ((_, envadd), (_, aexp)) =>
+                        let
                           val env = Env.subst (!rho, Env.append (env, envadd))
                           val (cexp, rho') = elaborateExp (env, aexp)
                           val _   = rho := TyAtom.Subst.compose (rho', !rho)
@@ -569,22 +841,22 @@ struct
         val cexps = Vector.map (cexps,    fn e => Cexp.subst (rho', e))
         val cvar  = Cvar.newNoname ()
         val cpatcexps = Vector.map2 (cpats, cexps,
-                          fn (cpat, cexp) => { pat = cpat 
+                          fn (cpat, cexp) => { pat = cpat
                                              , exp = cexp
                                              , lay = NONE
                                              })
         val ty1   = (Cpat.ty o Vector.sub) (cpats, 0)
-        val clam  = Clam.make (cvar, ty1, 
+        val clam  = Clam.make (cvar, ty1,
                       Cexp.casee { test = Cexp.var0 (cvar, ty1), rules = cpatcexps, kind = kind})
-      in 
+      in
         (clam, rho')
       end
 
     and elaborateDec (env : Env.t, adec : Adec.t) : Decs.t * Env.t *
     TyAtom.Subst.t =
       case Adec.node adec of
-        Adec.SeqDec decs   => 
-          let 
+        Adec.SeqDec decs   =>
+          let
            val rho0  = TyAtom.Subst.empty
            val state = ( env         (*base environment*)
                        , Env.empty   (*new  environment*)
@@ -592,16 +864,16 @@ struct
                        , rho0        (*composed substitution*)
                        )
            val state = Vector.fold (decs, state,
-                         fn (dec, (e0, en, cdecs, rho)) => 
-                           let 
+                         fn (dec, (e0, en, cdecs, rho)) =>
+                           let
                              val env = Env.append (e0, en)
                              val (cdecs1, en', rho1) = elaborateDec (env, dec)
-                             val cdecs = Decs.subst (rho1, cdecs) 
+                             val cdecs = Decs.subst (rho1, cdecs)
                            in
                              ( Env.subst  (rho1, e0)
                              , Env.append (Env.subst (rho1, en), en')
                              , Decs.append (cdecs, cdecs1)
-                             , TyAtom.Subst.compose (rho1, rho) 
+                             , TyAtom.Subst.compose (rho1, rho)
                              )
                            end)
           in
@@ -619,10 +891,10 @@ struct
             (Decs.append (cdecs1, cdecs2), Env.append (en1, en2), rho)
           end
       | Adec.Val {tyvars = vars, vbs = vbs, rvbs = rvbs } =>
-          let 
+          let
             val vars = TyAtom.VarSet.fromV vars
 
-            fun elabVB (env, pat, exp) = 
+            fun elabVB (env, pat, exp) =
               let
                 val _ = if TyAtom.VarSet.disjoint (Env.free env, vars) then
                           ()
@@ -647,7 +919,7 @@ struct
                 ((cpat, Apat.region pat, cexp), Env.gen (Env.free env, en), rho'')
               end
 
-            fun elabRVB (env, pat, lam) = 
+            fun elabRVB (env, pat, lam) =
               let
                 val _ = if TyAtom.VarSet.disjoint (Env.free env, vars) then
                           ()
@@ -657,15 +929,15 @@ struct
                             Layout.empty)
                 val (cpat, en) = elaboratePat (env, pat)
                 val ty1  = Cpat.ty cpat
-                val cvar = case Cpat.node cpat of 
+                val cvar = case Cpat.node cpat of
                              Cpat.Var v => v
                            | _          =>
                                (error (Apat.region pat,
                                   Layout.str "only vid is allowed in recursive binding",
                                   Layout.empty);
                                 Cvar.newNoname ())
-                val (clam, rho) = elaborateLam 
-                                    (Env.extendRgdFV vars 
+                val (clam, rho) = elaborateLam
+                                    (Env.extendRgdFV vars
                                       (Env.append (env, en)),
                                      lam,
                                      "function")
@@ -680,11 +952,11 @@ struct
                 ((cvar, clam), Env.gen (Env.free env, en), rho'')
               end
 
-            val state = (env, Env.empty, [], TyAtom.Subst.empty) 
+            val state = (env, Env.empty, [], TyAtom.Subst.empty)
             val (e0, en, cs, rho) =
               Vector.fold (vbs, state,
-                fn ({pat=p, exp=b}, (e0, en, cs, rho)) => 
-                  let 
+                fn ({pat=p, exp=b}, (e0, en, cs, rho)) =>
+                  let
                     val (clause1, en1, rho1) = elabVB (e0, p, b)
                     val cs = List.map (cs,
                                fn (p, r, e) =>
@@ -699,12 +971,12 @@ struct
 
              val state = (e0, Env.empty, [], rho)
              val (e0', en', cs', rho') =
-               Vector.fold (rvbs, state, 
+               Vector.fold (rvbs, state,
                  fn ({pat=p,match=m}, (e0, en, cs, rho)) =>
                  let
                    val (clause1, en1, rho1) = elabRVB (e0, p, m)
                    val cs = List.map (cs,
-                              fn (v, l) => 
+                              fn (v, l) =>
                                 (v, Clam.subst (rho1, l)))
                  in
                    ( Env.subst (rho1, e0)
@@ -722,11 +994,11 @@ struct
              Env.append (Env.subst (rho', en), en'),
              rho')
           end
-      | Adec.Fun (vars, fundef) => 
+      | Adec.Fun (vars, fundef) =>
           let
-            val implicit = (TyAtom.VarSet.unions o Vector.toListMap) (Vector.concatV fundef, 
-                              fn {pats, body, ...} => 
-                                let 
+            val implicit = (TyAtom.VarSet.unions o Vector.toListMap) (Vector.concatV fundef,
+                              fn {pats, body, ...} =>
+                                let
                                   val s1 = collectv (Apat.collectExplicitTyvars, pats)
                                   val s2 = Aexp.collectExplicitTyvars body
                                 in
@@ -747,14 +1019,14 @@ struct
             val cvars = Vector.tabulate (cnt, fn _ => Cvar.newNoname ())
 
             type funsig = Ast.Vid.t * int * TyAtom.Type.t * (Cpat.t vector * Env.t) vector
-            fun elabFunSig fbs : funsig = 
-              let 
+            fun elabFunSig fbs : funsig =
+              let
                 val fname = ref NONE
                 val arity = ref NONE
                 val sigs  = ref []
                 val rets  = ref []
-                val _ = Vector.foreach (fbs, 
-                          fn {pats = ps, body = e, resultType = rt} => 
+                val _ = Vector.foreach (fbs,
+                          fn {pats = ps, body = e, resultType = rt} =>
                             let
                               (* By the grammar of parser, the ps contains at
                                * least one element. *)
@@ -767,28 +1039,28 @@ struct
                                       else
                                         ()
                               val name = case Apat.node namepat of
-                                           Apat.Var {name = vid,...} => 
-                                             let 
+                                           Apat.Var {name = vid,...} =>
+                                             let
                                                val (strs, vid) = Ast.Longvid.split vid
                                                val _ =  if not (List.isEmpty strs) then
                                                           Control.warning (Apat.region namepat,
                                                             Layout.str "function name should be short",
                                                             Layout.empty)
-                                                        else 
+                                                        else
                                                           ()
                                              in
                                                vid
                                              end
                                           | _ =>
                                               let
-                                                val _ = 
+                                                val _ =
                                                   Control.error (Apat.region namepat,
                                                     Layout.str "misplaced pattern",
                                                     Layout.empty)
                                               in
                                                 Ast.Vid.bogus
                                               end
-                              val _ = case !fname of 
+                              val _ = case !fname of
                                         NONE       => fname := SOME name
                                       | SOME fname => if Ast.Vid.equals (fname, name) then
                                                         Control.error (Apat.region namepat,
@@ -804,7 +1076,7 @@ struct
                                                           Layout.empty)
                                                       else
                                                         ()
-                              val sig_ = Vector.map (argpats, 
+                              val sig_ = Vector.map (argpats,
                                            fn pat => elaboratePat (env, pat))
                               val rett = case rt of
                                            NONE     => TyAtom.Type.newNoname ()
@@ -822,30 +1094,30 @@ struct
                 (* (cpat, type, env) vector for each fun binding *)
                 val sigs  = Vector.rev (Vector.fromList (!sigs))
                 val rets  = !rets
-                
+
                 (* types of each arg*)
                 val argstypss = Vector.tabulate (arity,
-                                  fn idx => 
-                                    Vector.map (sigs, 
-                                      fn sig_ => 
+                                  fn idx =>
+                                    Vector.map (sigs,
+                                      fn sig_ =>
                                         (Cpat.ty o #1) (Vector.sub (sig_,idx))))
                 (* unify types of each arg *)
                 val argsrhos  = Vector.map  (argstypss, TyAtom.unifyS o Vector.toList)
                 (* form the final type of each arg *)
-                val argstyps  = Vector.map2 (argsrhos, argstypss, fn (rho, typs) => 
+                val argstyps  = Vector.map2 (argsrhos, argstypss, fn (rho, typs) =>
                                   TyAtom.subst (rho, Vector.sub (typs, 0)))
                 val rettyp    = TyAtom.subst (TyAtom.unifyS rets, List.first rets)
                 val funtyp    = Vector.foldr (argstyps, rettyp, TyAtom.Type.arrow)
-                
-                val cpatsenv = Vector.map (sigs, 
+
+                val cpatsenv = Vector.map (sigs,
                                  fn argv =>
                                    let
                                      val cpats = Vector.tabulate (arity,
-                                                   fn idx => 
+                                                   fn idx =>
                                                      #1 (Vector.sub (argv, idx)))
                                      val envs  = Vector.tabulate (arity,
                                                    fn idx =>
-                                                     let 
+                                                     let
                                                        val env = #2 (Vector.sub (argv, idx))
                                                        val rho = Vector.sub (argsrhos, idx)
                                                      in
@@ -866,12 +1138,12 @@ struct
             fun elabFunBdy (env, rho, bound,
                             (fname, arity, typ, argsenv): funsig,
                             fbs                         : funbind vector) :
-                           Clam.t * TyAtom.Type.t * TyAtom.Subst.t * Env.t = 
+                           Clam.t * TyAtom.Type.t * TyAtom.Subst.t * Env.t =
               let
                 val (argtyps, rettyp) = TyAtom.Type.deArgs typ
                 val state = (env, rho, [], [])
                 val (env, rho, cexps, typs) =
-                  Vector.fold2 (argsenv, fbs, state, 
+                  Vector.fold2 (argsenv, fbs, state,
                     fn ((_, env'), fb, (env, rho, cexps, typs)) =>
                       let
                         val env  = Env.subst (rho, Env.append (env, env'))
@@ -895,12 +1167,12 @@ struct
                 val env   = Env.subst (rho, env)
                 val cexps = List.revMap (cexps, fn cexp => Cexp.subst (rho, cexp))
 
-                val body  = Cexp.casepar { test  = Vector.fromListRev  
+                val body  = Cexp.casepar { test  = Vector.fromListRev
                                                      (List.map2 (argvars, argtyps, Cexp.var0))
-                                         , rules = Vector.map2 
-                                                     (Vector.map (argsenv, #1), 
+                                         , rules = Vector.map2
+                                                     (Vector.map (argsenv, #1),
                                                       Vector.fromList cexps,
-                                                      fn (cpats, cexp) => 
+                                                      fn (cpats, cexp) =>
                                                         { pat = cpats
                                                         , exp = cexp
                                                         , lay = NONE
@@ -916,10 +1188,10 @@ struct
               end
 
             val sigs : funsig vector = Vector.map (fundef, elabFunSig)
-            val env'  = Vector.fold2 (sigs, cvars, env, 
-                          fn ((fname, _, typ, _), cvar, env) => 
-                            let 
-                              val vd = Env.ValDef.make 
+            val env'  = Vector.fold2 (sigs, cvars, env,
+                          fn ((fname, _, typ, _), cvar, env) =>
+                            let
+                              val vd = Env.ValDef.make
                                          (Env.ValDef.VVAR cvar,
                                           TyAtom.Scheme.fromType typ)
                             in
@@ -929,7 +1201,7 @@ struct
             val state = (env', TyAtom.Subst.empty, [],[])
             val (_, rho, clams, ctyps) =
               Vector.fold2 (sigs, fundef, state,
-                fn (sig_, fbs, (env, rho,clams,ctyps)) => 
+                fn (sig_, fbs, (env, rho,clams,ctyps)) =>
                   let
                     val (clam,ctyp,rho,env) =
                       elabFunBdy (env, rho, bound, sig_, fbs)

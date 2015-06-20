@@ -1,11 +1,11 @@
-functor TypeAtom (S : TYPE_ATOM_STRUCTS) : TYPE_ATOM = 
+functor TypeAtom (S : TYPE_ATOM_STRUCTS) : TYPE_ATOM =
 struct
   open S
 
   type tyvar  = Tyvar.t
   type tycon  = Tycon.t
 
-  structure VarSet = 
+  structure VarSet =
   struct
     type t = tyvar list
     val { empty       = empty
@@ -29,13 +29,13 @@ struct
   exception NotMergeable
 
 
-  structure Type = 
+  structure Type =
   struct
     datatype t = FlexTyvar of tyvar
                | RigdTyvar of tyvar
                | Cons of tycon * (t vector)
 
-    fun layout typ = 
+    fun layout typ =
       case typ of
         FlexTyvar tyvar    => Tyvar.layout tyvar
       | RigdTyvar tyvar    => Tyvar.layout tyvar
@@ -43,7 +43,7 @@ struct
                                 [ Tycon.layout tycon
                                 , Vector.layout layout typs ]
 
-    fun free typ = 
+    fun free typ =
       case typ of
         RigdTyvar x    => VarSet.singleton x
       | FlexTyvar x    => VarSet.singleton x
@@ -51,7 +51,7 @@ struct
 
     fun newNoname () = FlexTyvar (Tyvar.newNoname {equality = false})
     fun var v = FlexTyvar v
-    fun equals (t1, t2) = 
+    fun equals (t1, t2) =
       case (t1, t2) of
         (FlexTyvar v1, FlexTyvar v2) =>Tyvar.equals (v1, v2)
       | (RigdTyvar v1, RigdTyvar v2) => Tyvar.equals (v1, v2)
@@ -62,21 +62,18 @@ struct
             false
       | _  => false
 
-    val bool   = Cons (Tycon.bool,   Vector.new0 ())
-    val intInf = Cons (Tycon.intInf, Vector.new0 ())
-
     fun con x = Cons x
 
     fun arrow (t1,t2) = Cons (Tycon.arrow, Vector.new2 (t1,t2))
-    
-    fun deArrow typ = 
+
+    fun deArrow typ =
       case typ of
         Cons (con, targs) =>
            if Tycon.equals (con, Tycon.arrow) then
              let
                val _ = if Vector.length targs <> 2 then
                          Error.bug "Arrow used as non-binary operator"
-                       else 
+                       else
                          ()
                val ta1 = Vector.sub (targs, 0)
                val ta2 = Vector.sub (targs, 1)
@@ -87,10 +84,10 @@ struct
              NONE
       | _ => NONE
 
-    fun deArgs typ = 
+    fun deArgs typ =
       let
         val ret  = ref typ
-        val args = List.unfold (typ, fn typ => 
+        val args = List.unfold (typ, fn typ =>
                      case deArrow typ of
                        x as SOME (_, r) => (ret := r; x)
                      | NONE             => NONE)
@@ -118,11 +115,38 @@ struct
       | _            => false
 
     fun tuple   typs = Cons (Tycon.tuple, typs)
+
+    val bool   = Cons (Tycon.bool,   Vector.new0 ())
+    fun isBool t =
+      case t of
+        Cons (tycon, args) => Tycon.equals (tycon, Tycon.bool) andalso
+                              Vector.length args = 0
+      | _ => false
+
     val unit = tuple (Vector.new0 ())
+    fun isUnit t =
+      case t of
+        Cons (tycon, args) => Tycon.equals (tycon, Tycon.tuple) andalso
+                              Vector.length args = 0
+      | _ => false
+
+    fun deStringX t =
+      case t of
+        Cons (tycon, args) => if Tycon.equals (tycon, Tycon.vector) andalso
+                                 Vector.length args = 1 then
+                                case Vector.sub (args, 0) of
+                                  Cons (tycon, _) => if Tycon.isCharX (tycon) then
+                                                       SOME (Tycon.deCharX tycon)
+                                                     else
+                                                       NONE
+                                | _ => NONE
+                              else
+                                NONE
+      | _ => NONE
 
 
     fun makeHom' {con = mapcon, rvar = maprvar, fvar = mapfvar} =
-      let 
+      let
         fun hom typ =
           case typ of
             Cons (con, args) => mapcon (con, Vector.map (args, hom))
@@ -132,8 +156,8 @@ struct
         {hom = hom}
       end
 
-    val synonym = let 
-                    fun mapcon (tycon, args) = 
+    val synonym = let
+                    fun mapcon (tycon, args) =
                       if Tycon.isCharX tycon then
                         con (Tycon.word ((WordSize.fromBits o CharSize.bits o Tycon.deCharX) tycon), args)
                       else if Tycon.isIntX tycon then
@@ -157,16 +181,24 @@ struct
       end
 
   end
- 
+
+  (* Include the basic primitive types in TypeOps, but we ensure Type overrides TypeOps *)
+  structure Ops = TypeOps (structure Tycon = Tycon
+                           open Type)
+  structure Type =
+  struct
+    open Ops Type
+  end
+
   type typ = Type.t
 
-  structure Subst = 
+  structure Subst =
   struct
-    type t = (tyvar * typ) list 
+    type t = (tyvar * typ) list
 
     local
-      fun layoutOne (tyvar, typ) = 
-        Layout.seq 
+      fun layoutOne (tyvar, typ) =
+        Layout.seq
           [ Tyvar.layout tyvar
           , Layout.str "=>"
           , Type.layout typ]
@@ -175,21 +207,21 @@ struct
           , singleton = singleton
           , + = union
           , - = subtract
-          , areDisjoint = disjoint 
+          , areDisjoint = disjoint
           , ...}
           = List.set {equals = eq , layout = layoutOne}
     in
       val empty  = empty
-      fun make s = 
+      fun make s =
         singleton s
 
       fun merge ss =
         if disjoint ss then
           union ss
-        else 
+        else
           raise NotMergeable
 
-      fun minus (rho, bound) = 
+      fun minus (rho, bound) =
         subtract (rho, List.map (bound, fn v => (v, Type.bool)))
 
       fun layout s =
@@ -200,13 +232,13 @@ struct
   structure Scheme =
   struct
     datatype t = Scheme of VarSet.t * typ
-    fun make s = Scheme s 
+    fun make s = Scheme s
 
     fun bound (Scheme (bd, _)) = bd
 
-    fun fromType t = make (VarSet.empty, t) 
+    fun fromType t = make (VarSet.empty, t)
 
-    fun free (Scheme (bound, typ)) = 
+    fun free (Scheme (bound, typ)) =
       VarSet.subtract (Type.free typ, bound)
 
     fun layout (Scheme (bound, typ)) =
@@ -221,37 +253,37 @@ struct
     open Type
     fun substOne (s as (tyvar0, typ0), t) =
       case t of
-        FlexTyvar tyvar    => 
+        FlexTyvar tyvar    =>
           if Tyvar.equals (tyvar0, tyvar) then typ0 else t
-      | RigdTyvar tyvar    => 
+      | RigdTyvar tyvar    =>
           if Tyvar.equals (tyvar0, tyvar) then typ0 else t
-      | Cons (tycon, typs) => 
+      | Cons (tycon, typs) =>
           Cons (tycon, Vector.map (typs, fn t => substOne (s, t)))
   in
     fun subst (rho, typ) = List.fold (rho, typ, substOne)
 
-    fun unify (typ1, typ2) = 
+    fun unify (typ1, typ2) =
       case (typ1, typ2) of
-        (RigdTyvar x, RigdTyvar y) => if Tyvar.equals (x, y) then 
-                                        Subst.empty 
+        (RigdTyvar x, RigdTyvar y) => if Tyvar.equals (x, y) then
+                                        Subst.empty
                                       else
                                         Error.bug "Not possible"
       | (RigdTyvar _, _)           => raise NotUnifiable
       | (_, RigdTyvar _)           => raise NotUnifiable
-      | (FlexTyvar x, FlexTyvar y) => if Tyvar.equals (x, y) then 
-                                        Subst.empty 
+      | (FlexTyvar x, FlexTyvar y) => if Tyvar.equals (x, y) then
+                                        Subst.empty
                                       else
                                         Subst.make (x, typ2)
       | (FlexTyvar x, _)           => Subst.make (x, typ2)
       | (_, FlexTyvar y)           => Subst.make (y, typ1)
-      | (Cons (con1, typs1), Cons (con2, typs2)) => 
+      | (Cons (con1, typs1), Cons (con2, typs2)) =>
           if Tycon.equals (con1, con2) then
-            unifyV (typs1, typs2) 
-          else 
+            unifyV (typs1, typs2)
+          else
             raise NotUnifiable
 
-    and unifyV (vt1, vt2) = Vector.fold2 (vt1, vt2, Subst.empty, 
-                              fn (ty1, ty2, rho) => 
+    and unifyV (vt1, vt2) = Vector.fold2 (vt1, vt2, Subst.empty,
+                              fn (ty1, ty2, rho) =>
                                 let
                                   val ty1' = subst (rho,ty1)
                                   val ty2' = subst (rho,ty2)
@@ -260,13 +292,13 @@ struct
                                   compose (rho', rho)
                                 end)
 
-    and compose (rho1, rho2) = 
+    and compose (rho1, rho2) =
         Subst.merge (rho1, List.map (rho2, fn (v, t) => (v, subst (rho1, t))))
 
     fun unifyL (vt1, vt2) = unifyV (Vector.fromList vt1, Vector.fromList vt2)
 
 
-    local 
+    local
       fun loop (ty, rho, typs) =
         case typs of
           []      => rho
@@ -276,24 +308,24 @@ struct
               val rho' = unify (ty, x)
               val ty'  = subst (rho', ty)
               val rho' =compose (rho', rho)
-            in 
+            in
               loop (ty', rho', xs)
             end
     in
-      fun unifyS typs = 
+      fun unifyS typs =
         case typs of
           []      => Subst.empty
         | x :: xs => loop (x, Subst.empty, xs)
     end
-    
-    fun gen (env, typ) = 
-      let 
+
+    fun gen (env, typ) =
+      let
         val qfv = VarSet.subtract (Type.free typ, env)
       in
         Scheme.make (qfv, typ)
       end
 
-    fun inst (Scheme.Scheme (tyvars, typ)) = 
+    fun inst (Scheme.Scheme (tyvars, typ)) =
       let
         val len   = List.length tyvars
         val ntyps = List.duplicate (len, fn () => FlexTyvar (Tyvar.newNoname {equality = false}))
@@ -311,14 +343,14 @@ struct
     val composeT  = compose
     exception CompilerBugGenBoundedScheme
   in
-    structure Scheme = 
+    structure Scheme =
     struct
       open Scheme
 
-      fun subst (rho, Scheme (bound, typ)) = 
+      fun subst (rho, Scheme (bound, typ)) =
         Scheme (bound, substType (Subst.minus (rho, bound), typ))
 
-      fun gen (env, scheme as Scheme (bound, typ)) = 
+      fun gen (env, scheme as Scheme (bound, typ)) =
         if VarSet.isEmpty bound then
           genType (env, typ)
         else
@@ -328,39 +360,39 @@ struct
     structure Subst =
     struct
       open Subst
-      
+
       val compose = composeT
-        
+
       fun composeL []            = empty
         | composeL (rho :: rhos) = compose (rho, composeL rhos)
     end
   end
 
-  structure TypFun = 
+  structure TypFun =
   struct
-  
+
     datatype arity = Arity of int | NaryCon
     datatype t = TypCon of tycon * TyconKind.t
-               | TypFun of tyvar vector * typ 
-    fun apply (typfun, args) = 
-      let 
+               | TypFun of tyvar vector * typ
+    fun apply (typfun, args) =
+      let
         val n = Vector.length args
       in
         case typfun of
-          TypFun (parms, body) => 
+          TypFun (parms, body) =>
             let
               val _ = if Vector.length parms <> n then
                         Error.bug "TyFun: arity does not match"
                       else
                         ()
             in
-              Vector.fold2 (parms, args, body, 
+              Vector.fold2 (parms, args, body,
                 fn (tyvar, typ, body) =>
                   subst (Subst.make (tyvar, typ), body))
             end
         | TypCon (con, kind) =>
-          let 
-            val _ = case kind of 
+          let
+            val _ = case kind of
                       TyconKind.Arity n' =>
                         if n <> n' then
                           Error.bug "TyFun: arity does not match"
@@ -376,11 +408,10 @@ struct
       | arity (TypCon (_, TyconKind.Nary   )) = NaryCon
       | arity (TypFun (parms, _))             = Arity (Vector.length parms)
 
-    fun fromTycon (tycon, kind) = 
+    fun fromTycon (tycon, kind) =
         TypCon (tycon, kind)
 
     fun fromType t = TypFun (Vector.new0 (), t)
   end
 
 end
-

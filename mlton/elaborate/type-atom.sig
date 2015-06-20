@@ -29,8 +29,6 @@ signature TYPE_ATOM = sig
     val layout: t -> Layout.t
     val free  : t -> VarSet.t
 
-    val bool      : t
-
     (* Make a type variable *)
     val var       : Tyvar.t -> t
     (* Make an fresh type variable *)
@@ -48,8 +46,8 @@ signature TYPE_ATOM = sig
     val deArgs    : t -> t list * t
 
     (* Make a homomorphism from Type to other types.
-     * The destroy field exists for incorpration to Core-ML, and it is a 
-     * dummy function 
+     * The destroy field exists for incorpration to Core-ML, and it is a
+     * dummy function
      *)
     val makeHom: {con: Tycon.t * 'a vector -> 'a,
                   var: Tyvar.t -> 'a} -> {destroy: unit -> unit,
@@ -60,12 +58,21 @@ signature TYPE_ATOM = sig
 
     (* Following set of function are needed to incorprate into Core-ML *)
     val deConOpt: t -> (Tycon.t * t vector) option
-    val isCharX: t -> bool
-    val isInt: t -> bool
-    val tuple: t vector -> t
-    val unit: t
+    val isCharX : t -> bool
+    val isInt   : t -> bool
+    val tuple   : t vector -> t
+
+    val unit    : t
+    val isUnit  : t -> bool
+
+    val bool    : t
+    val isBool  : t -> bool
+
+    val deStringX : t -> CharSize.t option
+
+    val cpointer: t
   end
-  
+
   structure Subst  : sig
     type t
     val empty   : t
