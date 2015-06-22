@@ -1,9 +1,9 @@
-functor ElaborateEnv (S: ELABORATE_ENV_STRUCTS) : ELABORATE_ENV = 
+functor ElaborateEnv (S: ELABORATE_ENV_STRUCTS) : ELABORATE_ENV =
 struct
   open S
 
   structure TypEnv = Env (structure Domain = Ast.Tycon)
-  structure TypDef = 
+  structure TypDef =
   struct
     type t = { typfun: TyAtom.TypFun.t, cons  : Ast.Longvid.t list }
     fun arity  (td : t) = TyAtom.TypFun.arity (#typfun  td)
@@ -14,7 +14,7 @@ struct
   type typenv = TypDef.t TypEnv.t
 
   structure ValEnv = Env (structure Domain = Ast.Vid  )
-  structure ValDef = 
+  structure ValDef =
   struct
     datatype v = VCON of Con.t | VVAR of Var.t
     type t = v * TyAtom.Scheme.t
@@ -30,8 +30,15 @@ struct
     fun make (v, s) = (v, s)
   end
   type valenv = ValDef.t ValEnv.t
-  
-  type env = {typenv: typenv, valenv: valenv, freergdvar: TyAtom.VarSet.t}
+
+  structure Fixity = Ast.Fixity
+  structure FixEnv = Env (structure Domain = Ast.Vid)
+  type fixenv      = Fixity.t FixEnv.t
+
+  type env = { typenv: typenv
+             , valenv: valenv
+             , freergdvar: TyAtom.VarSet.t
+             , fixenv: fixenv }
   type t = env
 
   structure Basis =
@@ -39,15 +46,16 @@ struct
     type t = env
   end
 
-  val empty = { typenv = TypEnv.empty (),
-                valenv = ValEnv.empty (),
-                freergdvar = TyAtom.VarSet.empty }
+  val empty = { typenv = TypEnv.empty ()
+              , valenv = ValEnv.empty ()
+              , freergdvar = TyAtom.VarSet.empty
+              , fixenv = FixEnv.empty () }
 
-  fun free (env : t) = 
+  fun free (env : t) =
     let
       val fvset = ref (TyAtom.VarSet.empty)
-      val _ = ValEnv.foreach (#valenv env, 
-                fn (_, s) => 
+      val _ = ValEnv.foreach (#valenv env,
+                fn (_, s) =>
                   fvset := TyAtom.VarSet.append (!fvset, TyAtom.Scheme.free (s)))
     in
       !fvset
@@ -55,36 +63,41 @@ struct
 
   fun gen (vars, env : t) =
     let
-      val valenv = ValEnv.map (#valenv env, 
-                     fn valdef => 
-                       let 
+      val valenv = ValEnv.map (#valenv env,
+                     fn valdef =>
+                       let
                          val v = ValDef.value  valdef
                          val s = ValDef.scheme valdef
                        in
-                         ValDef.make (v, TyAtom.Scheme.gen (vars, s))                         
+                         ValDef.make (v, TyAtom.Scheme.gen (vars, s))
                        end)
     in
       { typenv     = #typenv env
       , valenv     = valenv
       , freergdvar = #freergdvar env
+      , fixenv     = #fixenv env
       }
     end
-  
-  fun subst (rho, env : t) = 
-    let 
+
+  fun subst (rho, env : t) =
+    let
       val ve = ValEnv.map (#valenv env,
                  fn (v, s) => (v, TyAtom.Scheme.subst (rho, s)))
     in
-      {typenv = #typenv env, valenv = ve, freergdvar = #freergdvar env}
+      { typenv = #typenv env
+      , valenv = ve
+      , freergdvar = #freergdvar env
+      , fixenv = #fixenv env }
     end
 
-  fun append (env0 : t, env1 : t) = 
+  fun append (env0 : t, env1 : t) =
     { typenv     = TypEnv.+ (#typenv env0, #typenv env1)
     , valenv     = ValEnv.+ (#valenv env0, #valenv env1)
     , freergdvar = TyAtom.VarSet.append (#freergdvar env0, #freergdvar env1)
+    , fixenv     = FixEnv.+ (#fixenv env0, #fixenv env1)
     }
 
-  local 
+  local
     open Control
   in
     fun lookupTycon (env : t, longtycon) =
@@ -93,27 +106,27 @@ struct
         val (strids, tycon) = split longtycon
         (* we don't support structure in Simple-ML, so report an error
          * if the strids is not empty *)
-        val _ = if List.isEmpty strids 
+        val _ = if List.isEmpty strids
                 then
-                  () 
-                else 
+                  ()
+                else
                   error (region longtycon,
                     Layout.str "Unsupported long tycon",
                     Layout.empty)
       in
         TypEnv.peek (#typenv env, tycon)
       end
-  
+
     fun lookupVid   (env: t, longvid) =
       let
         open Ast.Longvid
         val (strids, vid) = split longvid
         (* we don't support structure in Simple-ML, so report an error
          * if the strids is not empty *)
-        val _ = if List.isEmpty strids 
+        val _ = if List.isEmpty strids
                 then
-                  () 
-                else 
+                  ()
+                else
                   error (region longvid,
                     Layout.str "Unsupported long vid",
                     Layout.empty)
@@ -121,53 +134,65 @@ struct
         ValEnv.peek (#valenv env, vid)
       end
 
-    fun lookupCon   (env: t, longcon) = 
-      let 
+    fun lookupCon   (env: t, longcon) =
+      let
         open Ast
         val (path, con) = Longcon.split longcon
         val longvid     = Longvid.long (path, Vid.fromCon con)
         val valdef      = lookupVid (env, longvid)
-        val _ = Option.app (valdef, fn vd => 
+        val _ = Option.app (valdef, fn vd =>
                   if (ValDef.isCon o ValDef.value) vd then
                     ()
                   else
-                    error (Longcon.region longcon, 
+                    error (Longcon.region longcon,
                       Layout.str "lookupCon results in a non-Con",
                       Layout.empty))
       in
         valdef
       end
+
+    fun lookupFixity (env:t, longvid) =
+      let
+        open Ast.Longvid
+        val (strids, vid) = split longvid
+        val _ = if List.isEmpty strids
+                then
+                  ()
+                else
+                  error (region longvid,
+                    Layout.str "Unsupported long vid",
+                    Layout.empty)
+      in
+        FixEnv.peek (#fixenv env, vid)
+      end
   end
 
-  fun extendTycon (atycon, def) env = 
-    let 
-      val {typenv = te, valenv = ve, freergdvar = vs} = env
-    in
-      {typenv = TypEnv.extend (te, atycon, def),
-       valenv = ve,
-       freergdvar = vs}  
-    end
+  fun extendTycon (atycon, def) (env: t) =
+    { typenv     = TypEnv.extend (#typenv env, atycon, def)
+    , valenv     = #valenv env
+    , freergdvar = #freergdvar env
+    , fixenv     = #fixenv env }
 
-  fun extendVid (vid, def) env = 
-    let 
-      val {typenv = te, valenv = ve, freergdvar = vs} = env
-    in
-      {typenv = te,
-       valenv = ValEnv.extend (ve, vid, def),
-       freergdvar = vs}  
-    end
+  fun extendVid (vid, def) (env: t) =
+      { typenv     = #typenv env
+      , valenv     = ValEnv.extend (#valenv env, vid, def)
+      , freergdvar = #freergdvar env
+      , fixenv     = #fixenv env }
 
-  fun extendRgdFV nvs env = 
-    let 
-      val {typenv = te, valenv = ve, freergdvar = vs} = env
-    in
-      {typenv = te,
-       valenv = ve,
-       freergdvar = TyAtom.VarSet.append (vs, nvs)}
-    end
+  fun extendRgdFV nvs (env: t) =
+      { typenv     = #typenv env
+      , valenv     = #valenv env
+      , freergdvar = TyAtom.VarSet.append (#freergdvar env, nvs)
+      , fixenv     = #fixenv env }
 
-  fun makeBasis (env, make, getenv)  = 
-    let 
+  fun extendFixity (vid, fixity) (env: t) =
+      { typenv     = #typenv env
+      , valenv     = #valenv env
+      , freergdvar = #freergdvar env
+      , fixenv     = FixEnv.extend (#fixenv env, vid, fixity) }
+
+  fun makeBasis (env, make, getenv)  =
+    let
       val x = make env
       val e = getenv x
     in

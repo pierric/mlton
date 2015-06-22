@@ -23,6 +23,8 @@ local
    elaborate-env.fun
    elaborate-type.sig
    elaborate-type.fun
+   flatparser.sig
+   flatparser.fun
    elaborate-core.sig
    elaborate-core.fun
    elaborate-program.sig

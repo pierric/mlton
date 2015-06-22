@@ -2,69 +2,8 @@ functor ElaborateCore (S: ELABORATE_CORE_STRUCTS) =
 struct
   open S
 
-  local
-    structure Apat = Ast.Pat
-    structure Aexp = Ast.Exp
-  in
-    structure Flat =
-    struct
-
-      exception CompilerBugEmptyPatSeq
-
-      fun parsePats (env, pats) =
-        case Vector.length pats of
-          0 => raise CompilerBugEmptyPatSeq
-        | 1 => Vector.sub (pats, 0)
-        | 2 =>
-            let
-              val con = Vector.sub (pats, 0)
-              val arg = Vector.sub (pats, 1)
-              val pat = case Apat.node con of
-                          Apat.Var {name = vid, ...} =>
-                            Apat.App (Ast.Longvid.toLongcon vid, arg)
-                        | _ =>
-                            (Control.error (Apat.region con,
-                               Layout.str "misplaced pattern as constructor",
-                               Layout.empty);
-                             Apat.Wild)
-              val reg = Region.append (Apat.region con, Apat.region arg)
-            in
-              Apat.makeRegion (pat, reg)
-            end
-        | _ =>
-            let
-              val con = Vector.sub (pats, 0)
-              val arg = Vector.dropPrefix (pats, 1)
-              val reg = Vector.fold (arg, Apat.region con,
-                          fn (p, r) => Region.append (r, Apat.region p))
-              val _ = Control.error (reg,
-                        Layout.str "pattern sequence do not form a valid pattern",
-                        Layout.empty)
-            in
-              con
-            end
-
-      fun parseExps (env, exps) =
-        if (Vector.length exps = 1) then
-          Vector.sub (exps, 0)
-        else
-          let
-            val exp0 = Vector.sub (exps, 0)
-            val exp1 = Vector.sub (exps, 1)
-            val apply = fn (a, b) => Aexp.app (b, a)
-          in
-            Vector.foldFrom (exps, 2, Aexp.app (exp0, exp1), apply)
-          end
-
-      fun parsePatsFunSig (env, pats) =
-        let
-          val fname = Vector.sub (pats, 0)
-          val args  = Vector.dropPrefix (pats, 1)
-        in
-          (fname, args)
-        end
-    end
-  end
+  structure Flat = FlatParser (structure Env = Env
+                               structure Ast = Ast)
 
   exception UnsupportedPatternSyntax
   exception UnsupportedExpressionSyntax
@@ -1237,6 +1176,12 @@ struct
             , rho)
           end
 
+      | Adec.Fix {fixity, ops} =>
+          let
+            val env = Vector.fold (ops, env, fn (vid, env) => Env.extendFixity (vid, fixity) env)
+          in
+            (Decs.empty, env, TyAtom.Subst.empty)
+          end
       | _ => raise UnsupportedDeclarationSyntax
   end
 end
